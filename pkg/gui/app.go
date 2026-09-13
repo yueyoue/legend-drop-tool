@@ -26,7 +26,7 @@ import (
 //go:embed icon.png
 var iconData []byte
 
-const appTitle = "传奇爆率模拟与修改工具 v1.0.3"
+const appTitle = "传奇爆率模拟与修改工具 v1.0.4"
 
 // App 主应用
 type App struct {
@@ -66,6 +66,12 @@ type App struct {
 
 	selectedFileIdx int
 	monGenEntries   []*parser.MonGenEntry
+	mapInfoLookup   map[string]string // 地图编号→地图名称
+
+	// 模拟筛选条件
+	selectedMonsters []string
+	selectedItems    []string
+	selectedMaps     []string
 }
 
 // New 创建并运行应用
@@ -107,7 +113,7 @@ func (a *App) buildUI() fyne.CanvasObject {
 	statusBar := container.NewHBox(a.statusLabel)
 
 	split := container.NewHSplit(leftPanel, rightPanel)
-	split.Offset = 0.25
+	split.SetOffset(0.25)
 	return container.NewBorder(toolbar, statusBar, nil, nil, split)
 }
 
@@ -404,20 +410,20 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	a.simResultLabel = widget.NewLabel("")
 	a.simResultLabel.Wrapping = fyne.TextWrapWord
 
-	// 构建三列结果
+	// 构建三列结果（每列带表头）
 	resultGrid := container.NewGridWithColumns(3,
 		container.NewBorder(itemHeader, nil, nil, nil, a.simItemList),
 		container.NewBorder(mapHeader, nil, nil, nil, a.simMapList),
 		container.NewBorder(monsterHeader, nil, nil, nil, a.simMonsterList),
 	)
 
-	// 导出按钮
+	// 底部：统计摘要 + 导出按钮
 	exportBtn := widget.NewButton("导出结果", a.onExportSimResult)
-	bottomBar := container.NewHBox(a.simResultLabel, layout.NewSpacer(), exportBtn)
+	summaryBar := container.NewBorder(nil, nil, nil, exportBtn, a.simResultLabel)
 
 	return container.NewBorder(
 		container.NewVBox(optionArea, widget.NewSeparator()),
-		container.NewVBox(widget.NewSeparator(), bottomBar),
+		container.NewVBox(widget.NewSeparator(), summaryBar),
 		nil, nil,
 		resultGrid,
 	)
@@ -519,6 +525,7 @@ func (a *App) showMonsterPicker() {
 		names = append(names, r.File.MonsterName)
 	}
 	a.showMultiPicker("选择怪物", names, func(selected []string) {
+		a.selectedMonsters = selected
 		a.simMonsterCount.SetText(fmt.Sprintf("(%d)", len(selected)))
 	})
 }
@@ -542,6 +549,7 @@ func (a *App) showItemPicker() {
 	}
 	sort.Strings(names)
 	a.showMultiPicker("选择物品", names, func(selected []string) {
+		a.selectedItems = selected
 		a.simItemCount.SetText(fmt.Sprintf("(%d)", len(selected)))
 	})
 }
@@ -555,50 +563,105 @@ func (a *App) showMapPicker() {
 	for _, mg := range a.monGenEntries {
 		mapSet[mg.MapName] = true
 	}
-	var names []string
-	for name := range mapSet {
-		names = append(names, name)
+
+	// 构建显示名→地图ID的映射
+	displayToID := make(map[string]string)
+	var displayNames []string
+	for mapID := range mapSet {
+		displayName := mapID
+		if a.mapInfoLookup != nil {
+			if mapName, ok := a.mapInfoLookup[mapID]; ok && mapName != "" {
+				displayName = mapID + " - " + mapName
+			}
+		}
+		displayNames = append(displayNames, displayName)
+		displayToID[displayName] = mapID
 	}
-	sort.Strings(names)
-	a.showMultiPicker("选择地图", names, func(selected []string) {
+	sort.Strings(displayNames)
+
+	a.showMultiPicker("选择地图", displayNames, func(selected []string) {
+		a.selectedMaps = nil
+		for _, displayName := range selected {
+			if mapID, ok := displayToID[displayName]; ok {
+				a.selectedMaps = append(a.selectedMaps, mapID)
+			} else {
+				a.selectedMaps = append(a.selectedMaps, displayName)
+			}
+		}
 		a.simMapCount.SetText(fmt.Sprintf("(%d)", len(selected)))
 	})
 }
 
-// showMultiPicker 通用多选对话框
+// showMultiPicker 通用多选对话框（带搜索）
 func (a *App) showMultiPicker(title string, items []string, onConfirm func([]string)) {
 	selected := make(map[string]bool)
+	filtered := make([]string, len(items))
+	copy(filtered, items)
 
-	// 全选/全不选
-	selectAllBtn := widget.NewButton("全选", func() {
-		for _, item := range items {
-			selected[item] = true
-		}
-	})
+	// 搜索框
+	searchEntry := widget.NewEntry()
+	searchEntry.SetPlaceHolder("输入关键词搜索...")
 
 	// 列表
 	list := widget.NewList(
-		func() int { return len(items) },
+		func() int { return len(filtered) },
 		func() fyne.CanvasObject {
 			check := widget.NewCheck("选项文本", nil)
 			return check
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			if id >= len(filtered) {
+				return
+			}
 			check := obj.(*widget.Check)
-			check.Text = items[id]
-			check.Checked = selected[items[id]]
+			check.Text = filtered[id]
+			check.Checked = selected[filtered[id]]
 			check.OnChanged = func(val bool) {
-				selected[items[id]] = val
+				selected[filtered[id]] = val
 			}
 			check.Refresh()
 		},
 	)
 
+	// 搜索过滤
+	searchEntry.OnChanged = func(query string) {
+		query = strings.ToLower(strings.TrimSpace(query))
+		if query == "" {
+			filtered = make([]string, len(items))
+			copy(filtered, items)
+		} else {
+			filtered = nil
+			for _, item := range items {
+				if strings.Contains(strings.ToLower(item), query) {
+					filtered = append(filtered, item)
+				}
+			}
+		}
+		list.Refresh()
+	}
+
+	// 全选/全不选
+	selectAllBtn := widget.NewButton("全选", func() {
+		for _, item := range filtered {
+			selected[item] = true
+		}
+		list.Refresh()
+	})
+	clearAllBtn := widget.NewButton("全不选", func() {
+		for _, item := range filtered {
+			selected[item] = false
+		}
+		list.Refresh()
+	})
+
 	scroll := container.NewVScroll(list)
-	scroll.SetMinSize(fyne.NewSize(400, 500))
+	scroll.SetMinSize(fyne.NewSize(500, 450))
 
 	content := container.NewBorder(
-		container.NewHBox(selectAllBtn),
+		container.NewVBox(
+			searchEntry,
+			container.NewHBox(selectAllBtn, clearAllBtn),
+		),
 		nil, nil, nil, scroll,
 	)
 
@@ -646,23 +709,18 @@ func (a *App) onRunSimNew() {
 	}
 
 	// 怪物筛选
-	if a.simMonsterRadio.Selected == "指定怪物" {
-		// 从计数解析选中数量（简化处理：这里从UI状态获取）
-		// 实际选中列表在showMonsterPicker中维护，此处用全部怪物
-		// 用户可以通过左侧列表选择单个怪物来模拟
-		if a.selectedFileIdx >= 0 {
-			cfg.MonsterFilter = []string{a.currentResults[a.selectedFileIdx].File.MonsterName}
-		}
+	if a.simMonsterRadio.Selected == "指定怪物" && len(a.selectedMonsters) > 0 {
+		cfg.MonsterFilter = a.selectedMonsters
 	}
 
 	// 物品筛选
-	if a.simItemRadio.Selected == "指定物品" {
-		// 从picker获取的选中项（简化：此处暂时为空，需要持久化选中状态）
+	if a.simItemRadio.Selected == "指定物品" && len(a.selectedItems) > 0 {
+		cfg.ItemFilter = a.selectedItems
 	}
 
 	// 地图筛选
-	if a.simMapRadio.Selected == "指定地图" {
-		// 从picker获取的选中项
+	if a.simMapRadio.Selected == "指定地图" && len(a.selectedMaps) > 0 {
+		cfg.MapFilter = a.selectedMaps
 	}
 
 	a.statusLabel.SetText("正在模拟...请稍候")
@@ -757,6 +815,12 @@ func (a *App) onLoadFiles() {
 	monGenPath := filepath.Join(serverRoot, "Mir200", "Envir", "MonGen.txt")
 	if monGenEntries, err := parser.ParseMonGen(monGenPath); err == nil && len(monGenEntries) > 0 {
 		a.monGenEntries = monGenEntries
+	}
+
+	// 解析 MapInfo.txt（地图编号→名称映射）
+	mapInfoPath := filepath.Join(serverRoot, "Mir200", "Envir", "MapInfo.txt")
+	if mapInfo, err := parser.ParseMapInfo(mapInfoPath); err == nil {
+		a.mapInfoLookup = mapInfo
 	}
 
 	totalEntries := 0

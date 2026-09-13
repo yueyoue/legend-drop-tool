@@ -439,3 +439,32 @@ func FindMonGenForMonster(monGenEntries []*MonGenEntry, monsterName string) (ref
 	}
 	return 60, 10 // 默认值
 }
+
+// ParseMapInfo 解析 MapInfo.txt 获取地图编号到名称的映射
+// 格式: 地图编号\t地图名称 或 地图编号 地图名称
+func ParseMapInfo(filePath string) (map[string]string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	content := decodeToUTF8(data)
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	result := make(map[string]string)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+		// 支持 Tab 或空格分隔
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			mapID := fields[0]
+			mapName := strings.Join(fields[1:], " ")
+			result[mapID] = mapName
+		}
+	}
+
+	return result, nil
+}
