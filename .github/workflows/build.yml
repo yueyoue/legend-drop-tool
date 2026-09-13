@@ -20,6 +20,16 @@ jobs:
       - name: Set up GCC
         uses: bwoodsend/setup-winlibs-action@v1
 
+      - name: Download Chinese font
+        shell: pwsh
+        run: |
+          # 直接从Windows系统复制微软雅黑字体
+          $fontSrc = "C:\Windows\Fonts\msyh.ttc"
+          $fontDst = "${{ github.workspace }}\assets\fonts"
+          New-Item -ItemType Directory -Force -Path $fontDst
+          Copy-Item $fontSrc "$fontDst\msyh.ttc"
+          Write-Host "Font copied: $(Get-Item "$fontDst\msyh.ttc" | Select-Object -ExpandProperty Length) bytes"
+
       - name: Install dependencies
         run: go mod tidy
 

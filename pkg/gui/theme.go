@@ -1,6 +1,8 @@
 package gui
 
 import (
+	_ "embed"
+	"fmt"
 	"image/color"
 	"os"
 	"path/filepath"
@@ -9,6 +11,9 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 )
+
+//go:embed ../../assets/fonts/msyh.ttc
+var embeddedFont []byte
 
 // CJKTheme 包含中文支持的主题
 type CJKTheme struct {
@@ -19,49 +24,55 @@ type CJKTheme struct {
 // NewCJKTheme 创建支持中文的主题
 func NewCJKTheme() *CJKTheme {
 	t := &CJKTheme{}
-	t.loadSystemFonts()
+	t.loadFont()
 	return t
 }
 
-// loadSystemFonts 加载系统中文字体
-func (t *CJKTheme) loadSystemFonts() {
+// loadFont 加载中文字体
+func (t *CJKTheme) loadFont() {
+	// 优先使用嵌入的字体
+	if len(embeddedFont) > 1024 {
+		t.regularFont = fyne.NewStaticResource("msyh.ttc", embeddedFont)
+		t.boldFont = t.regularFont
+		fmt.Printf("[CJKTheme] 使用嵌入字体 (%d bytes)\n", len(embeddedFont))
+		return
+	}
+
+	// 备选：从系统加载
 	if runtime.GOOS != "windows" {
 		return
 	}
 
-	// Windows 系统中文字体路径
-	fontPaths := []string{
-		// 微软雅黑
-		filepath.Join(os.Getenv("WINDIR"), "Fonts", "msyh.ttc"),
-		filepath.Join(os.Getenv("WINDIR"), "Fonts", "msyhbd.ttc"),
-		// 微软雅黑 (备选路径)
-		`C:\Windows\Fonts\msyh.ttc`,
-		`C:\Windows\Fonts\msyhbd.ttc`,
+	fontDirs := []string{}
+	for _, envVar := range []string{"WINDIR", "windir", "SystemRoot"} {
+		if v := os.Getenv(envVar); v != "" {
+			fontDirs = append(fontDirs, filepath.Join(v, "Fonts"))
+		}
+	}
+	fontDirs = append(fontDirs, `C:\Windows\Fonts`, `D:\Windows\Fonts`)
+
+	fontNames := []string{"msyh.ttc", "msyhbd.ttc", "simhei.ttf", "simsun.ttc"}
+
+	for _, dir := range fontDirs {
+		for _, name := range fontNames {
+			fontPath := filepath.Join(dir, name)
+			data, err := os.ReadFile(fontPath)
+			if err != nil || len(data) < 1024 {
+				continue
+			}
+			res := fyne.NewStaticResource(name, data)
+			if t.regularFont == nil {
+				t.regularFont = res
+				fmt.Printf("[CJKTheme] 系统字体: %s (%d bytes)\n", fontPath, len(data))
+			}
+			if t.regularFont != nil {
+				t.boldFont = t.regularFont
+				return
+			}
+		}
 	}
 
-	for i, fontPath := range fontPaths {
-		data, err := os.ReadFile(fontPath)
-		if err != nil {
-			continue
-		}
-		res := &fyne.StaticResource{
-			StaticName:    filepath.Base(fontPath),
-			StaticContent: data,
-		}
-		if i%2 == 0 {
-			t.regularFont = res
-		} else {
-			t.boldFont = res
-		}
-		if t.regularFont != nil && t.boldFont != nil {
-			break
-		}
-	}
-
-	// 如果没找到粗体，用常规字体代替
-	if t.boldFont == nil && t.regularFont != nil {
-		t.boldFont = t.regularFont
-	}
+	fmt.Println("[CJKTheme] 警告: 未找到中文字体")
 }
 
 // Font 返回字体资源
@@ -69,18 +80,14 @@ func (t *CJKTheme) Font(style fyne.TextStyle) fyne.Resource {
 	if style.Monospace {
 		return theme.DefaultTheme().Font(style)
 	}
-	if style.Bold {
-		if t.boldFont != nil {
-			return t.boldFont
-		}
+	if style.Bold && t.boldFont != nil {
+		return t.boldFont
 	}
 	if t.regularFont != nil {
 		return t.regularFont
 	}
 	return theme.DefaultTheme().Font(style)
 }
-
-// 以下方法委托给默认主题
 
 func (t *CJKTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	return theme.DefaultTheme().Color(name, variant)
