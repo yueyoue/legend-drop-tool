@@ -47,8 +47,8 @@ func (e *Editor) Records() []EditRecord {
 
 // ModifyEntry 修改单条掉落概率
 func (e *Editor) ModifyEntry(file *parser.MonsterDropFile, entry *parser.DropEntry, newNumerator, newDenominator int) error {
-	if entry.IsCallRef {
-		return fmt.Errorf("不支持修改#CALL引用")
+	if !entry.IsEditable() {
+		return fmt.Errorf("该条目不支持修改")
 	}
 
 	oldValue := entry.ProbabilityStr()
@@ -101,13 +101,17 @@ func (e *Editor) DeleteEntry(file *parser.MonsterDropFile, idx int) error {
 
 // AddEntry 新增掉落条目
 func (e *Editor) AddEntry(file *parser.MonsterDropFile, itemName string, numerator, denominator, quantity int) {
+	line := fmt.Sprintf("%d/%d %s", numerator, denominator, itemName)
+	if quantity > 1 {
+		line += fmt.Sprintf(" %d", quantity)
+	}
 	entry := &parser.DropEntry{
 		LineNumber:             len(file.Entries) + 1,
 		ProbabilityNumerator:   numerator,
 		ProbabilityDenominator: denominator,
 		ItemName:               itemName,
 		Quantity:               quantity,
-		RawLine:                fmt.Sprintf("%d/%d %s %d", numerator, denominator, itemName, quantity),
+		RawLine:                line,
 	}
 	file.Entries = append(file.Entries, entry)
 
@@ -115,19 +119,18 @@ func (e *Editor) AddEntry(file *parser.MonsterDropFile, itemName string, numerat
 		Timestamp: time.Now(),
 		Action:    ActionAdd,
 		FilePath:  file.FilePath,
-		NewValue:  entry.RawLine,
+		NewValue:  line,
 	})
 }
 
-// BatchMultiply 批量倍率调整 (对所有非注释、非CALL的条目)
+// BatchMultiply 批量倍率调整 (仅对可编辑条目)
 func (e *Editor) BatchMultiply(file *parser.MonsterDropFile, multiplier float64) int {
 	count := 0
 	for _, entry := range file.Entries {
-		if entry.IsComment || entry.IsCallRef || entry.ProbabilityDenominator == 0 {
+		if !entry.IsEditable() {
 			continue
 		}
 		oldDen := entry.ProbabilityDenominator
-		// 分母除以倍率 = 提高爆率
 		newDen := int(float64(oldDen) / multiplier)
 		if newDen < 1 {
 			newDen = 1
@@ -146,11 +149,11 @@ func (e *Editor) BatchMultiply(file *parser.MonsterDropFile, multiplier float64)
 	return count
 }
 
-// BatchSetAll 批量设置所有条目为同一概率
+// BatchSetAll 批量设置所有可编辑条目为同一概率
 func (e *Editor) BatchSetAll(file *parser.MonsterDropFile, numerator, denominator int) int {
 	count := 0
 	for _, entry := range file.Entries {
-		if entry.IsComment || entry.IsCallRef {
+		if !entry.IsEditable() {
 			continue
 		}
 		entry.ProbabilityNumerator = numerator
@@ -164,7 +167,7 @@ func (e *Editor) BatchSetAll(file *parser.MonsterDropFile, numerator, denominato
 func (e *Editor) FilterByItem(file *parser.MonsterDropFile, itemName string) []*parser.DropEntry {
 	var result []*parser.DropEntry
 	for _, entry := range file.Entries {
-		if entry.IsComment || entry.IsCallRef {
+		if !entry.IsEditable() {
 			continue
 		}
 		if strings.Contains(entry.ItemName, itemName) {
@@ -202,18 +205,7 @@ func (e *Editor) SaveAs(file *parser.MonsterDropFile, newPath string) error {
 func (e *Editor) RebuildRawContent(file *parser.MonsterDropFile) {
 	var lines []string
 	for _, entry := range file.Entries {
-		if entry.IsComment {
-			lines = append(lines, entry.RawLine)
-		} else if entry.IsCallRef {
-			lines = append(lines, fmt.Sprintf("#CALL [%s]", entry.CallPath))
-		} else {
-			line := fmt.Sprintf("%d/%d %s", entry.ProbabilityNumerator, entry.ProbabilityDenominator, entry.ItemName)
-			if entry.Quantity > 1 {
-				line += fmt.Sprintf(" %d", entry.Quantity)
-			}
-			lines = append(lines, line)
-			entry.RawLine = line
-		}
+		lines = append(lines, entry.RawLine)
 	}
 	file.RawContent = strings.Join(lines, "\r\n")
 }

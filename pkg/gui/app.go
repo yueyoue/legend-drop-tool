@@ -33,11 +33,9 @@ type App struct {
 	simulator  *simulator.Simulator
 	backupMgr  *backup.Manager
 
-	// 当前加载的数据
 	currentResults []*parser.ParseResult
 	currentEngine  parser.EngineType
 
-	// UI组件
 	serverPathEntry   *widget.Entry
 	engineSelect      *widget.Select
 	fileList          *widget.List
@@ -45,13 +43,11 @@ type App struct {
 	statusLabel       *widget.Label
 	simResultLabel    *widget.Label
 
-	// 模拟配置组件
 	simDurationEntry  *widget.Entry
 	simKillRatioEntry *widget.Entry
 	simRefreshEntry   *widget.Entry
 	simCountEntry     *widget.Entry
 
-	// 当前选中的文件
 	selectedFileIdx int
 }
 
@@ -64,13 +60,13 @@ func New() {
 	cfg, _ := config.Load()
 
 	gui := &App{
-		fyneApp:    a,
-		mainWindow: w,
-		cfg:        cfg,
-		authMgr:    auth.NewLocalAuth(),
-		editor:     editor.New(),
-		simulator:  simulator.New(),
-		selectedFileIdx: -1,
+		fyneApp:           a,
+		mainWindow:        w,
+		cfg:               cfg,
+		authMgr:           auth.NewLocalAuth(),
+		editor:            editor.New(),
+		simulator:         simulator.New(),
+		selectedFileIdx:   -1,
 	}
 
 	w.SetContent(gui.buildUI())
@@ -79,25 +75,16 @@ func New() {
 
 // buildUI 构建主界面
 func (a *App) buildUI() fyne.CanvasObject {
-	// 顶部工具栏
 	toolbar := a.buildToolbar()
-
-	// 左侧文件列表
 	leftPanel := a.buildFileListPanel()
-
-	// 右侧详情面板 (带标签页)
 	rightPanel := a.buildDetailTabs()
-
-	// 底部状态栏
 	a.statusLabel = widget.NewLabel("就绪 - 请选择传奇服务端目录")
 	statusBar := container.NewHBox(a.statusLabel)
 
-	// 主布局
 	split := container.NewHSplit(leftPanel, rightPanel)
 	split.Offset = 0.25
 
-	main := container.NewBorder(toolbar, statusBar, nil, nil, split)
-	return main
+	return container.NewBorder(toolbar, statusBar, nil, nil, split)
 }
 
 // buildToolbar 构建顶部工具栏
@@ -116,7 +103,7 @@ func (a *App) buildToolbar() fyne.CanvasObject {
 	)
 	a.engineSelect.SetSelected("自动检测")
 
-	toolbar := container.NewVBox(
+	return container.NewVBox(
 		container.NewHBox(
 			widget.NewLabel("服务端目录:"),
 			a.serverPathEntry,
@@ -131,7 +118,6 @@ func (a *App) buildToolbar() fyne.CanvasObject {
 		),
 		widget.NewSeparator(),
 	)
-	return toolbar
 }
 
 // buildFileListPanel 构建左侧文件列表
@@ -153,7 +139,7 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 				name := r.File.MonsterName
 				count := 0
 				for _, e := range r.File.Entries {
-					if !e.IsComment && !e.IsCallRef {
+					if e.IsEditable() {
 						count++
 					}
 				}
@@ -168,23 +154,15 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 
 	header := widget.NewLabel("怪物列表")
 	header.TextStyle = fyne.TextStyle{Bold: true}
-
 	return container.NewBorder(header, nil, nil, nil, a.fileList)
 }
 
 // buildDetailTabs 构建右侧详情标签页
 func (a *App) buildDetailTabs() fyne.CanvasObject {
-	// 爆率修改页
 	editTab := a.buildEditTab()
-
-	// 爆率模拟页
 	simTab := a.buildSimTab()
-
-	// 授权管理页
-	authTab := a.buildAuthTab()
-
-	// 操作日志页
 	logTab := a.buildLogTab()
+	authTab := a.buildAuthTab()
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem("爆率修改", editTab),
@@ -206,7 +184,7 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 			return len(a.currentResults[a.selectedFileIdx].File.Entries)
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("掉落条目模板文本内容")
+			return widget.NewLabel("掉落条目模板文本内容很长很长很长")
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			if a.selectedFileIdx < 0 || a.currentResults == nil {
@@ -218,12 +196,39 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 			}
 			entry := file.Entries[id]
 			label := obj.(*widget.Label)
-			if entry.IsComment {
-				label.SetText(fmt.Sprintf("[注释] %s", entry.RawLine))
-			} else if entry.IsCallRef {
-				label.SetText(fmt.Sprintf("[引用] #CALL [%s]", entry.CallPath))
-			} else {
-				label.SetText(fmt.Sprintf("%s  %s  x%d", entry.ProbabilityStr(), entry.ItemName, entry.Quantity))
+
+			indent := strings.Repeat("  ", entry.Depth)
+
+			switch {
+			case entry.IsComment:
+				label.SetText(fmt.Sprintf("%s📝 %s", indent, strings.TrimSpace(entry.RawLine)))
+			case entry.IsCallRef:
+				s := fmt.Sprintf("%s📎 #CALL [%s]", indent, entry.CallPath)
+				if entry.CallLabel != "" {
+					s += " " + entry.CallLabel
+				}
+				label.SetText(s)
+			case entry.IsChildStart:
+				s := fmt.Sprintf("%s📦 #CHILD %s", indent, entry.ChildProbability)
+				if entry.ChildRandom {
+					s += " RANDOM"
+				}
+				label.SetText(s)
+			case entry.IsCaseStart:
+				label.SetText(fmt.Sprintf("%s🔀 #CASE %s", indent, entry.CaseExpression))
+			case entry.IsIfStart:
+				label.SetText(fmt.Sprintf("%s🔀 #IF %s", indent, entry.CaseExpression))
+			case entry.IsChildEnd:
+				label.SetText(fmt.Sprintf("%s📦 )", indent))
+			case entry.IsEditable():
+				trigger := ""
+				if entry.HasTrigger {
+					trigger = fmt.Sprintf(" |%s", entry.TriggerName)
+				}
+				label.SetText(fmt.Sprintf("%s🎯 %s  %s%s  x%d",
+					indent, entry.ProbabilityStr(), entry.ItemName, trigger, entry.Quantity))
+			default:
+				label.SetText(fmt.Sprintf("%s%s", indent, strings.TrimSpace(entry.RawLine)))
 			}
 		},
 	)
@@ -231,21 +236,15 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 		a.onEntrySelected(id)
 	}
 
-	// 操作按钮
 	addBtn := widget.NewButton("新增掉落", a.onAddEntry)
 	mulBtn := widget.NewButton("批量倍率调整", a.onBatchMultiply)
 	batchSetBtn := widget.NewButton("批量设置概率", a.onBatchSetProb)
 	saveBtn := widget.NewButton("保存文件", a.onSaveFile)
 	backupBtn := widget.NewButton("备份当前文件", a.onBackupCurrent)
-	backupAllBtn := widget.NewButton("备份整个目录", func() {
-		a.onBackupAll()
-	})
-
-	// 爆率检测按钮
+	backupAllBtn := widget.NewButton("备份整个目录", a.onBackupAll)
 	detectBtn := widget.NewButton("爆率异常检测", a.onDetectAnomaly)
 
 	btnBar := container.NewHBox(addBtn, mulBtn, batchSetBtn, detectBtn, backupBtn, backupAllBtn, layout.NewSpacer(), saveBtn)
-
 	return container.NewBorder(nil, btnBar, nil, nil, a.detailTable)
 }
 
@@ -253,21 +252,14 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 func (a *App) buildSimTab() fyne.CanvasObject {
 	a.simDurationEntry = widget.NewEntry()
 	a.simDurationEntry.SetText("1")
-	a.simDurationEntry.SetPlaceHolder("模拟时长(小时)")
-
 	a.simKillRatioEntry = widget.NewEntry()
 	a.simKillRatioEntry.SetText("0.6")
-	a.simKillRatioEntry.SetPlaceHolder("击杀比例 0~1")
-
 	a.simRefreshEntry = widget.NewEntry()
 	a.simRefreshEntry.SetText("60")
-	a.simRefreshEntry.SetPlaceHolder("怪物刷新间隔(秒)")
-
 	a.simCountEntry = widget.NewEntry()
 	a.simCountEntry.SetText("10")
-	a.simCountEntry.SetPlaceHolder("每次刷新数量")
 
-	simBtn := widget.NewButton("开始模拟", a.onRunSimulation)
+	simBtn := widget.NewButton("模拟当前怪物", a.onRunSimulation)
 	simAllBtn := widget.NewButton("模拟全部怪物", a.onRunSimulationAll)
 	exportBtn := widget.NewButton("导出结果", a.onExportSimResult)
 
@@ -291,7 +283,6 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 
 	scrollResult := container.NewVScroll(a.simResultLabel)
 	scrollResult.SetMinSize(fyne.NewSize(0, 400))
-
 	return container.NewBorder(form, nil, nil, nil, scrollResult)
 }
 
@@ -332,7 +323,6 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 		dialog.ShowInformation("激活成功", "授权已激活，可以使用全部功能", a.mainWindow)
 	})
 
-	// 授权说明
 	helpText := widget.NewLabel("授权说明:\n" +
 		"1. 复制本机机器码\n" +
 		"2. 联系管理员获取激活码\n" +
@@ -344,8 +334,7 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 	return container.NewVBox(
 		widget.NewLabel("授权管理"),
 		widget.NewSeparator(),
-		machineLabel,
-		copyBtn,
+		machineLabel, copyBtn,
 		widget.NewSeparator(),
 		statusLabel,
 		container.NewHBox(activateEntry, activateBtn),
@@ -374,13 +363,9 @@ func (a *App) buildLogTab() fyne.CanvasObject {
 		logLabel.SetText(sb.String())
 	})
 
-	clearBtn := widget.NewButton("清空", func() {
-		logLabel.SetText("操作记录:\n")
-	})
-
 	scroll := container.NewVScroll(logLabel)
 	return container.NewBorder(
-		container.NewHBox(widget.NewLabel("操作日志"), layout.NewSpacer(), refreshBtn, clearBtn),
+		container.NewHBox(widget.NewLabel("操作日志"), layout.NewSpacer(), refreshBtn),
 		nil, nil, nil, scroll,
 	)
 }
@@ -432,14 +417,12 @@ func (a *App) onLoadFiles() {
 		return
 	}
 
-	// 尝试标准路径
 	monItemsDir := filepath.Join(serverRoot, "Mir200", "Envir", "MonItems")
 
 	{
-		// 检查标准路径
 		results, err := parser.ParseDirectory(monItemsDir, a.currentEngine)
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("加载爆率文件失败: %v\n尝试路径: %s", err, monItemsDir), a.mainWindow)
+			dialog.ShowError(fmt.Errorf("加载爆率文件失败: %v\n路径: %s", err, monItemsDir), a.mainWindow)
 			return
 		}
 
@@ -454,11 +437,10 @@ func (a *App) onLoadFiles() {
 		a.cfg.ServerRoot = serverRoot
 		config.Save(a.cfg)
 
-		// 统计
 		totalEntries := 0
 		for _, r := range results {
 			for _, e := range r.File.Entries {
-				if !e.IsComment {
+				if e.IsEditable() {
 					totalEntries++
 				}
 			}
@@ -468,7 +450,6 @@ func (a *App) onLoadFiles() {
 		a.statusLabel.SetText(fmt.Sprintf("已加载 %d 个怪物文件，共 %d 条掉落配置 | 引擎: %s",
 			len(results), totalEntries, a.currentEngine))
 
-		// 显示解析警告
 		var warnings []string
 		for _, r := range results {
 			warnings = append(warnings, r.Warnings...)
@@ -482,7 +463,6 @@ func (a *App) onLoadFiles() {
 }
 
 func (a *App) onEntrySelected(id widget.ListItemID) {
-	// 双击编辑 (简化为弹窗)
 	if a.selectedFileIdx < 0 || a.currentResults == nil {
 		return
 	}
@@ -491,11 +471,10 @@ func (a *App) onEntrySelected(id widget.ListItemID) {
 		return
 	}
 	entry := file.Entries[id]
-	if entry.IsComment || entry.IsCallRef {
+	if !entry.IsEditable() {
 		return
 	}
 
-	// 显示编辑弹窗
 	numEntry := widget.NewEntry()
 	numEntry.SetText(strconv.Itoa(entry.ProbabilityNumerator))
 	denEntry := widget.NewEntry()
@@ -576,7 +555,6 @@ func (a *App) onBatchMultiply() {
 
 	mulEntry := widget.NewEntry()
 	mulEntry.SetText("2.0")
-	mulEntry.SetPlaceHolder("倍率 (如2.0=翻倍, 0.5=减半)")
 
 	form := widget.NewForm(widget.NewFormItem("倍率", mulEntry))
 	dialog.ShowCustomConfirm("批量倍率调整", "执行", "取消", form, func(ok bool) {
@@ -633,7 +611,6 @@ func (a *App) onSaveFile() {
 	}
 	file := a.currentResults[a.selectedFileIdx].File
 
-	// 自动备份
 	if a.cfg.AutoBackup && a.backupMgr != nil {
 		backupPath, err := a.backupMgr.BackupFile(file.FilePath)
 		if err == nil {
@@ -690,16 +667,14 @@ func (a *App) onDetectAnomaly() {
 		name := r.File.MonsterName
 		hasDrop := false
 		for _, e := range r.File.Entries {
-			if e.IsComment || e.IsCallRef {
+			if !e.IsEditable() {
 				continue
 			}
 			hasDrop = true
-			// 检测超高爆率
 			if e.ProbabilityDenominator <= 1 && e.ProbabilityNumerator >= 1 {
 				anomalies = append(anomalies, fmt.Sprintf("[%s] %s 必掉(%s) - 可能是测试配置",
 					name, e.ItemName, e.ProbabilityStr()))
 			}
-			// 检测极低爆率 (分母超过10万)
 			if e.ProbabilityDenominator > 100000 {
 				anomalies = append(anomalies, fmt.Sprintf("[%s] %s 极低爆率(%s) - 可能配置错误",
 					name, e.ItemName, e.ProbabilityStr()))
@@ -781,14 +756,13 @@ func (a *App) runSim(all bool) *simulator.SimResult {
 	a.statusLabel.SetText(fmt.Sprintf("模拟完成 - %s 击杀:%d 掉落:%d",
 		file.MonsterName, result.TotalKills, result.TotalDrops))
 
-	simResult := &simulator.SimResult{
+	return &simulator.SimResult{
 		Config:       cfg,
 		MonsterStats: map[string]*simulator.MonsterSimResult{file.MonsterName: result},
 		TotalKills:   result.TotalKills,
 		TotalDrops:   result.TotalDrops,
 		TotalEmpty:   result.EmptyDrops,
 	}
-	return simResult
 }
 
 func (a *App) onExportSimResult() {
@@ -807,7 +781,6 @@ func (a *App) onExportSimResult() {
 	}, a.mainWindow)
 }
 
-// updateDetailPanel 更新详情面板
 func (a *App) updateDetailPanel() {
 	if a.detailTable != nil {
 		a.detailTable.Refresh()
