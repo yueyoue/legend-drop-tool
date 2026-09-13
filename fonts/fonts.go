@@ -2,5 +2,5 @@ package fonts
 
 import _ "embed"
 
-//go:embed NotoSansSC.ttf
-var NotoSansSC []byte
+//go:embed WenQuanYiMicroHei.ttf
+var ChineseFont []byte

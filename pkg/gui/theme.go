@@ -28,11 +28,11 @@ func NewCJKTheme() *CJKTheme {
 
 // loadFont 加载中文字体，优先使用嵌入字体，其次本地文件，最后系统字体
 func (t *CJKTheme) loadFont() {
-	// 1. 优先使用编译时嵌入的字体
-	if len(fonts.NotoSansSC) > 1024 {
-		t.regularFont = fyne.NewStaticResource("NotoSansSC.ttf", fonts.NotoSansSC)
+	// 1. 优先使用编译时嵌入的字体 (WenQuanYi Micro Hei, TrueType outlines)
+	if len(fonts.ChineseFont) > 1024 {
+		t.regularFont = fyne.NewStaticResource("WenQuanYiMicroHei.ttf", fonts.ChineseFont)
 		t.boldFont = t.regularFont
-		fmt.Printf("[CJKTheme] 使用嵌入字体: NotoSansSC.ttf (%d bytes)\n", len(fonts.NotoSansSC))
+		fmt.Printf("[CJKTheme] 使用嵌入字体: WenQuanYiMicroHei.ttf (%d bytes)\n", len(fonts.ChineseFont))
 		return
 	}
 
@@ -44,11 +44,11 @@ func (t *CJKTheme) loadFont() {
 		filepath.Join(exeDir, "msyh.ttc"),
 		filepath.Join(exeDir, "msyh.ttf"),
 		filepath.Join(exeDir, "simhei.ttf"),
-		filepath.Join(exeDir, "NotoSansSC.ttf"),
+		filepath.Join(exeDir, "WenQuanYiMicroHei.ttf"),
 		filepath.Join(exeDir, "fonts", "msyh.ttc"),
 		filepath.Join(exeDir, "fonts", "msyh.ttf"),
 		filepath.Join(exeDir, "fonts", "simhei.ttf"),
-		filepath.Join(exeDir, "fonts", "NotoSansSC.ttf"),
+		filepath.Join(exeDir, "fonts", "WenQuanYiMicroHei.ttf"),
 	}
 
 	for _, fontPath := range localFonts {

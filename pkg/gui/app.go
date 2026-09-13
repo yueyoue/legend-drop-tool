@@ -1,6 +1,7 @@
 package gui
 
 import (
+	_ "embed"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -21,7 +22,10 @@ import (
 	"github.com/yueyoue/legend-drop-tool/pkg/simulator"
 )
 
-const appTitle = "传奇爆率模拟与修改工具 v1.0"
+//go:embed icon.png
+var iconData []byte
+
+const appTitle = "传奇爆率模拟与修改工具 v1.0.2"
 
 // App 主应用
 type App struct {
@@ -55,12 +59,22 @@ type App struct {
 func New() {
 	a := app.New()
 
+	// 设置应用图标
+	if len(iconData) > 0 {
+		a.SetIcon(fyne.NewStaticResource("icon.png", iconData))
+	}
+
 	// 设置支持中文的主题
 	customTheme := NewCJKTheme()
 	a.Settings().SetTheme(customTheme)
 
 	w := a.NewWindow(appTitle)
 	w.Resize(fyne.NewSize(1200, 800))
+
+	// 设置窗口图标
+	if len(iconData) > 0 {
+		w.SetIcon(fyne.NewStaticResource("icon.png", iconData))
+	}
 
 	cfg, _ := config.Load()
 
@@ -109,18 +123,8 @@ func (a *App) buildToolbar() fyne.CanvasObject {
 	a.engineSelect.SetSelected("自动检测")
 
 	return container.NewVBox(
-		container.NewHBox(
-			widget.NewLabel("服务端目录:"),
-			a.serverPathEntry,
-			browseBtn,
-		),
-		container.NewHBox(
-			widget.NewLabel("引擎类型:"),
-			a.engineSelect,
-			autoDetectBtn,
-			layout.NewSpacer(),
-			loadBtn,
-		),
+		container.NewBorder(nil, nil, widget.NewLabel("服务端目录:"), browseBtn, a.serverPathEntry),
+		container.NewBorder(nil, nil, widget.NewLabel("引擎类型:"), container.NewHBox(autoDetectBtn, loadBtn), a.engineSelect),
 		widget.NewSeparator(),
 	)
 }
@@ -342,7 +346,7 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 		machineLabel, copyBtn,
 		widget.NewSeparator(),
 		statusLabel,
-		container.NewHBox(activateEntry, activateBtn),
+		container.NewBorder(nil, nil, nil, activateBtn, activateEntry),
 		widget.NewSeparator(),
 		helpText,
 	)
