@@ -1,0 +1,92 @@
+package parser
+
+import (
+	"fmt"
+	"time"
+)
+
+// EngineType 引擎类型
+type EngineType int
+
+const (
+	EngineUnknown EngineType = iota
+	EngineHERO
+	EngineGOM
+	EngineGEE
+	EngineBLUE
+)
+
+func (e EngineType) String() string {
+	switch e {
+	case EngineHERO:
+		return "HERO"
+	case EngineGOM:
+		return "GOM"
+	case EngineGEE:
+		return "GEE"
+	case EngineBLUE:
+		return "BLUE"
+	default:
+		return "未知"
+	}
+}
+
+// DropEntry 单条掉落配置
+type DropEntry struct {
+	LineNumber             int
+	ProbabilityNumerator   int    // 概率分子 (通常为1)
+	ProbabilityDenominator int    // 概率分母 (如100，表示1/100)
+	ItemName               string // 物品名称
+	Quantity               int    // 掉落数量，默认1
+	IsComment              bool   // 是否被注释
+	IsCallRef              bool   // 是否为#CALL引用
+	CallPath               string // #CALL引用的文件路径
+	RawLine                string // 原始行内容
+}
+
+// Probability 返回浮点概率
+func (d *DropEntry) Probability() float64 {
+	if d.ProbabilityDenominator == 0 {
+		return 0
+	}
+	return float64(d.ProbabilityNumerator) / float64(d.ProbabilityDenominator)
+}
+
+// ProbabilityStr 返回概率显示字符串
+func (d *DropEntry) ProbabilityStr() string {
+	if d.IsCallRef {
+		return "#CALL"
+	}
+	if d.ProbabilityDenominator == 1 {
+		return "1/1(必掉)"
+	}
+	return fmt.Sprintf("%d/%d", d.ProbabilityNumerator, d.ProbabilityDenominator)
+}
+
+// MonsterDropFile 怪物爆率文件
+type MonsterDropFile struct {
+	FilePath    string
+	MonsterName string
+	Engine      EngineType
+	Entries     []*DropEntry
+	RawContent  string
+	ParsedAt    time.Time
+}
+
+// ParseResult 解析结果
+type ParseResult struct {
+	File     *MonsterDropFile
+	Errors   []ParseError
+	Warnings []string
+}
+
+// ParseError 解析错误
+type ParseError struct {
+	Line    int
+	Message string
+	RawLine string
+}
+
+func (e ParseError) Error() string {
+	return fmt.Sprintf("第%d行: %s (内容: %s)", e.Line, e.Message, e.RawLine)
+}
