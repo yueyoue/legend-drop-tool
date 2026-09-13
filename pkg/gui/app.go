@@ -54,6 +54,11 @@ type App struct {
 // New 创建并运行应用
 func New() {
 	a := app.New()
+
+	// 设置支持中文的主题
+	customTheme := NewCJKTheme()
+	a.Settings().SetTheme(customTheme)
+
 	w := a.NewWindow(appTitle)
 	w.Resize(fyne.NewSize(1200, 800))
 
