@@ -3,6 +3,7 @@ package simulator
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/yueyoue/legend-drop-tool/pkg/parser"
@@ -10,11 +11,14 @@ import (
 
 // SimConfig 模拟配置
 type SimConfig struct {
-	DurationHours    float64 // 模拟时长(小时)
-	KillRatio        float64 // 击杀比例 0~1
-	RefreshInterval  float64 // 怪物刷新间隔(秒)
-	RefreshCount     int     // 每次刷新数量
-	MapRateModifier  float64 // 地图爆率修正系数
+	DurationHours   float64  // 模拟时长(小时)
+	KillRatio       float64  // 击杀比例 0~1
+	RefreshInterval float64  // 怪物刷新间隔(秒)
+	RefreshCount    int      // 每次刷新数量
+	MapRateModifier float64  // 地图爆率修正系数
+	MonsterFilter   []string // 指定怪物列表（空=全部）
+	ItemFilter      []string // 指定物品列表（空=全部）
+	MapFilter       []string // 指定地图列表（空=全部）
 }
 
 // DefaultConfig 默认配置
@@ -28,33 +32,34 @@ func DefaultConfig() SimConfig {
 	}
 }
 
-// DropResult 单次掉落结果
-type DropResult struct {
-	ItemName string
-	Quantity int
-}
-
-// MonsterSimResult 单怪物模拟结果
-type MonsterSimResult struct {
-	MonsterName  string
-	TotalKills   int64
-	TotalDrops   int64
-	EmptyDrops   int64
-	ItemStats    map[string]*ItemStat
-}
-
 // ItemStat 物品统计
 type ItemStat struct {
-	ItemName   string
-	DropCount  int64
-	TotalQty   int64
+	ItemName    string
+	DropCount   int64
+	TotalQty    int64
 	Probability float64
+}
+
+// MapStat 地图统计
+type MapStat struct {
+	MapName    string
+	MonsterCnt int64
+	DropCount  int64
+}
+
+// MonsterStat 怪物统计
+type MonsterStat struct {
+	MonsterName string
+	KillCount   int64
+	DropCount   int64
 }
 
 // SimResult 完整模拟结果
 type SimResult struct {
 	Config       SimConfig
-	MonsterStats map[string]*MonsterSimResult
+	ItemStats    []*ItemStat   // 按掉落数量排序
+	MapStats     []*MapStat    // 按掉落数量排序
+	MonsterStats []*MonsterStat // 按掉落数量排序
 	TotalKills   int64
 	TotalDrops   int64
 	TotalEmpty   int64
@@ -89,91 +94,220 @@ func New() *Simulator {
 	}
 }
 
-// Simulate 模拟单个怪物的掉落
-func (s *Simulator) Simulate(file *parser.MonsterDropFile, config SimConfig) *MonsterSimResult {
-	result := &MonsterSimResult{
-		MonsterName: file.MonsterName,
-		ItemStats:   make(map[string]*ItemStat),
-	}
-
-	// 计算总击杀数
-	totalDurationSec := config.DurationHours * 3600
-	totalRefreshes := totalDurationSec / config.RefreshInterval
-	totalMonsters := int64(totalRefreshes) * int64(config.RefreshCount)
-	totalKills := int64(float64(totalMonsters) * config.KillRatio)
-
-	if totalKills <= 0 {
-		totalKills = 1
-	}
-
-	result.TotalKills = totalKills
-
-	// 收集有效的掉落条目，并预计算概率
-	type dropProb struct {
-		entry *parser.DropEntry
-		prob  float64
-	}
-	var validEntries []dropProb
-	for _, entry := range file.Entries {
-		if entry.IsComment || entry.IsCallRef || entry.ProbabilityDenominator <= 0 {
-			continue
-		}
-		denominator := float64(entry.ProbabilityDenominator) / config.MapRateModifier
-		if denominator < 1 {
-			denominator = 1
-		}
-		prob := float64(entry.ProbabilityNumerator) / denominator
-		validEntries = append(validEntries, dropProb{entry: entry, prob: prob})
-	}
-
-	if len(validEntries) == 0 {
-		result.EmptyDrops = totalKills
-		return result
-	}
-
-	// 模拟每次击杀（批量处理，减少分支判断）
-	for i := int64(0); i < totalKills; i++ {
-		dropped := false
-		for _, dp := range validEntries {
-			if s.rng.Float64() < dp.prob {
-				dropped = true
-				result.TotalDrops++
-
-				stat, exists := result.ItemStats[dp.entry.ItemName]
-				if !exists {
-					stat = &ItemStat{
-						ItemName:    dp.entry.ItemName,
-						Probability: dp.entry.Probability(),
-					}
-					result.ItemStats[dp.entry.ItemName] = stat
-				}
-				stat.DropCount++
-				stat.TotalQty += int64(dp.entry.Quantity)
-			}
-		}
-		if !dropped {
-			result.EmptyDrops++
-		}
-	}
-
-	return result
+// monsterMapInfo 怪物与地图的关联信息
+type monsterMapInfo struct {
+	monsterName string
+	mapName     string
+	refreshSec  float64
+	count       int
 }
 
-// SimulateAll 模拟所有怪物
-func (s *Simulator) SimulateAll(files []*parser.MonsterDropFile, config SimConfig) *SimResult {
+// SimulateAll 模拟所有怪物，支持按怪物/物品/地图筛选
+func (s *Simulator) SimulateAll(
+	files []*parser.MonsterDropFile,
+	monGenEntries []*parser.MonGenEntry,
+	config SimConfig,
+) *SimResult {
 	start := time.Now()
-	result := &SimResult{
-		Config:       config,
-		MonsterStats: make(map[string]*MonsterSimResult),
+
+	// 构建怪物→地图映射
+	monsterMapLookup := make(map[string][]monsterMapInfo)
+	if monGenEntries != nil {
+		for _, mg := range monGenEntries {
+			info := monsterMapInfo{
+				monsterName: mg.MonsterName,
+				mapName:     mg.MapName,
+				refreshSec:  float64(mg.RefreshMinutes) * 60,
+				count:       mg.Count,
+			}
+			monsterMapLookup[mg.MonsterName] = append(monsterMapLookup[mg.MonsterName], info)
+		}
 	}
 
-	for _, file := range files {
-		monsterResult := s.Simulate(file, config)
-		result.MonsterStats[file.MonsterName] = monsterResult
-		result.TotalKills += monsterResult.TotalKills
-		result.TotalDrops += monsterResult.TotalDrops
-		result.TotalEmpty += monsterResult.EmptyDrops
+	// 构建怪物过滤集合
+	monsterFilterSet := make(map[string]bool)
+	for _, name := range config.MonsterFilter {
+		monsterFilterSet[name] = true
 	}
+	itemFilterSet := make(map[string]bool)
+	for _, name := range config.ItemFilter {
+		itemFilterSet[name] = true
+	}
+	mapFilterSet := make(map[string]bool)
+	for _, name := range config.MapFilter {
+		mapFilterSet[name] = true
+	}
+
+	// 按物品汇总
+	itemAgg := make(map[string]*ItemStat)
+	// 按地图汇总
+	mapAgg := make(map[string]*MapStat)
+	// 按怪物汇总
+	monsterAgg := make(map[string]*MonsterStat)
+
+	for _, file := range files {
+		monsterName := file.MonsterName
+
+		// 怪物筛选
+		if len(monsterFilterSet) > 0 && !monsterFilterSet[monsterName] {
+			continue
+		}
+
+		// 获取该怪物的地图信息
+		mapInfos, hasMapInfo := monsterMapLookup[monsterName]
+
+		// 地图筛选
+		if len(mapFilterSet) > 0 {
+			if !hasMapInfo {
+				continue
+			}
+			found := false
+			for _, mi := range mapInfos {
+				if mapFilterSet[mi.mapName] {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		// 计算该怪物的击杀数
+		var totalKills int64
+		if hasMapInfo && len(mapInfos) > 0 {
+			for _, mi := range mapInfos {
+				// 如果有地图筛选，只计算匹配的地图
+				if len(mapFilterSet) > 0 && !mapFilterSet[mi.mapName] {
+					continue
+				}
+				totalDurationSec := config.DurationHours * 3600
+				totalRefreshes := totalDurationSec / mi.refreshSec
+				mapKills := int64(totalRefreshes) * int64(mi.count)
+				mapKills = int64(float64(mapKills) * config.KillRatio)
+				if mapKills > 0 {
+					totalKills += mapKills
+
+					// 记录地图统计
+					if mapAgg[mi.mapName] == nil {
+						mapAgg[mi.mapName] = &MapStat{MapName: mi.mapName}
+					}
+					mapAgg[mi.mapName].MonsterCnt += mapKills
+				}
+			}
+		} else {
+			// 没有MonGen信息，使用默认配置
+			totalDurationSec := config.DurationHours * 3600
+			totalRefreshes := totalDurationSec / config.RefreshInterval
+			totalMonsters := int64(totalRefreshes) * int64(config.RefreshCount)
+			totalKills = int64(float64(totalMonsters) * config.KillRatio)
+
+			// 记录到"未知地图"
+			if mapAgg["未知地图"] == nil {
+				mapAgg["未知地图"] = &MapStat{MapName: "未知地图"}
+			}
+			mapAgg["未知地图"].MonsterCnt += totalKills
+		}
+
+		if totalKills <= 0 {
+			totalKills = 1
+		}
+
+		// 收集有效掉落条目
+		type dropProb struct {
+			entry *parser.DropEntry
+			prob  float64
+		}
+		var validEntries []dropProb
+		for _, entry := range file.Entries {
+			if entry.IsComment || entry.IsCallRef || entry.ProbabilityDenominator <= 0 {
+				continue
+			}
+			// 物品筛选
+			if len(itemFilterSet) > 0 && !itemFilterSet[entry.ItemName] {
+				continue
+			}
+			denominator := float64(entry.ProbabilityDenominator) / config.MapRateModifier
+			if denominator < 1 {
+				denominator = 1
+			}
+			prob := float64(entry.ProbabilityNumerator) / denominator
+			validEntries = append(validEntries, dropProb{entry: entry, prob: prob})
+		}
+
+		// 记录怪物统计
+		if monsterAgg[monsterName] == nil {
+			monsterAgg[monsterName] = &MonsterStat{MonsterName: monsterName}
+		}
+		monsterAgg[monsterName].KillCount += totalKills
+
+		// 模拟掉落
+		for i := int64(0); i < totalKills; i++ {
+			dropped := false
+			for _, dp := range validEntries {
+				if s.rng.Float64() < dp.prob {
+					dropped = true
+
+					// 物品统计
+					if itemAgg[dp.entry.ItemName] == nil {
+						itemAgg[dp.entry.ItemName] = &ItemStat{
+							ItemName:    dp.entry.ItemName,
+							Probability: dp.entry.Probability(),
+						}
+					}
+					itemAgg[dp.entry.ItemName].DropCount++
+					itemAgg[dp.entry.ItemName].TotalQty += int64(dp.entry.Quantity)
+
+					// 怪物掉落统计
+					monsterAgg[monsterName].DropCount++
+
+					// 地图掉落统计
+					if hasMapInfo {
+						for _, mi := range mapInfos {
+							if len(mapFilterSet) > 0 && !mapFilterSet[mi.mapName] {
+								continue
+							}
+							if mapAgg[mi.mapName] != nil {
+								mapAgg[mi.mapName].DropCount++
+							}
+						}
+					} else {
+						if mapAgg["未知地图"] != nil {
+							mapAgg["未知地图"].DropCount++
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 转换为排序切片
+	result := &SimResult{
+		Config: config,
+	}
+
+	for _, v := range itemAgg {
+		result.ItemStats = append(result.ItemStats, v)
+		result.TotalDrops += v.DropCount
+	}
+	sort.Slice(result.ItemStats, func(i, j int) bool {
+		return result.ItemStats[i].DropCount > result.ItemStats[j].DropCount
+	})
+
+	for _, v := range mapAgg {
+		result.MapStats = append(result.MapStats, v)
+	}
+	sort.Slice(result.MapStats, func(i, j int) bool {
+		return result.MapStats[i].DropCount > result.MapStats[j].DropCount
+	})
+
+	for _, v := range monsterAgg {
+		result.MonsterStats = append(result.MonsterStats, v)
+		result.TotalKills += v.KillCount
+	}
+	sort.Slice(result.MonsterStats, func(i, j int) bool {
+		return result.MonsterStats[i].DropCount > result.MonsterStats[j].DropCount
+	})
 
 	result.Duration = time.Since(start)
 	return result
@@ -194,16 +328,21 @@ func FormatResult(result *SimResult) string {
 	sb += fmt.Sprintf("平均每怪掉落数: %.2f\n", float64(result.TotalDrops)/float64(max(result.TotalKills, 1)))
 	sb += fmt.Sprintf("\n")
 
-	for name, ms := range result.MonsterStats {
-		sb += fmt.Sprintf("【%s】击杀:%d 掉落:%d 空爆率:%.1f%%\n",
-			name, ms.TotalKills, ms.TotalDrops,
-			float64(ms.EmptyDrops)/float64(max(ms.TotalKills, 1))*100)
-		for itemName, stat := range ms.ItemStats {
-			actualRate := float64(stat.DropCount) / float64(max(ms.TotalKills, 1)) * 100
-			sb += fmt.Sprintf("  ├ %s: 掉落%d次 (实际%.3f%% 配置%.4f%%)\n",
-				itemName, stat.DropCount, actualRate, stat.Probability*100)
-		}
+	sb += fmt.Sprintf("----- 掉落物品列表 -----\n")
+	for _, item := range result.ItemStats {
+		sb += fmt.Sprintf("  %s: 掉落%d次 (数量%d)\n", item.ItemName, item.DropCount, item.TotalQty)
 	}
+
+	sb += fmt.Sprintf("\n----- 掉落地图列表 -----\n")
+	for _, m := range result.MapStats {
+		sb += fmt.Sprintf("  %s: 刷怪%d 掉落%d\n", m.MapName, m.MonsterCnt, m.DropCount)
+	}
+
+	sb += fmt.Sprintf("\n----- 掉落怪物列表 -----\n")
+	for _, ms := range result.MonsterStats {
+		sb += fmt.Sprintf("  %s: 击杀%d 掉落%d\n", ms.MonsterName, ms.KillCount, ms.DropCount)
+	}
+
 	return sb
 }
 

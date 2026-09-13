@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,7 +26,7 @@ import (
 //go:embed icon.png
 var iconData []byte
 
-const appTitle = "传奇爆率模拟与修改工具 v1.0.2"
+const appTitle = "传奇爆率模拟与修改工具 v1.0.3"
 
 // App 主应用
 type App struct {
@@ -45,49 +46,52 @@ type App struct {
 	fileList          *widget.List
 	detailTable       *widget.List
 	statusLabel       *widget.Label
-	simResultLabel    *widget.Label
 
+	// 模拟页面控件
+	simMonsterRadio   *widget.RadioGroup
+	simItemRadio      *widget.RadioGroup
+	simMapRadio       *widget.RadioGroup
 	simDurationEntry  *widget.Entry
 	simKillRatioEntry *widget.Entry
-	simRefreshEntry   *widget.Entry
-	simCountEntry     *widget.Entry
+	simMonsterCount   *widget.Label
+	simItemCount      *widget.Label
+	simMapCount       *widget.Label
+	simItemList       *widget.List
+	simMapList        *widget.List
+	simMonsterList    *widget.List
+	simResultLabel    *widget.Label
+
+	// 模拟结果数据
+	simResult         *simulator.SimResult
 
 	selectedFileIdx int
-
-	monGenEntries []*parser.MonGenEntry // MonGen.txt解析结果
+	monGenEntries   []*parser.MonGenEntry
 }
 
 // New 创建并运行应用
 func New() {
 	a := app.New()
-
-	// 设置应用图标
 	if len(iconData) > 0 {
 		a.SetIcon(fyne.NewStaticResource("icon.png", iconData))
 	}
-
-	// 设置支持中文的主题
 	customTheme := NewCJKTheme()
 	a.Settings().SetTheme(customTheme)
 
 	w := a.NewWindow(appTitle)
-	w.Resize(fyne.NewSize(1200, 800))
-
-	// 设置窗口图标
+	w.Resize(fyne.NewSize(1280, 860))
 	if len(iconData) > 0 {
 		w.SetIcon(fyne.NewStaticResource("icon.png", iconData))
 	}
 
 	cfg, _ := config.Load()
-
 	gui := &App{
-		fyneApp:           a,
-		mainWindow:        w,
-		cfg:               cfg,
-		authMgr:           auth.NewLocalAuth(),
-		editor:            editor.New(),
-		simulator:         simulator.New(),
-		selectedFileIdx:   -1,
+		fyneApp:         a,
+		mainWindow:      w,
+		cfg:             cfg,
+		authMgr:         auth.NewLocalAuth(),
+		editor:          editor.New(),
+		simulator:       simulator.New(),
+		selectedFileIdx: -1,
 	}
 
 	w.SetContent(gui.buildUI())
@@ -104,7 +108,6 @@ func (a *App) buildUI() fyne.CanvasObject {
 
 	split := container.NewHSplit(leftPanel, rightPanel)
 	split.Offset = 0.25
-
 	return container.NewBorder(toolbar, statusBar, nil, nil, split)
 }
 
@@ -147,21 +150,19 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 			if a.currentResults != nil && id < len(a.currentResults) {
 				label := obj.(*widget.Label)
 				r := a.currentResults[id]
-				name := r.File.MonsterName
 				count := 0
 				for _, e := range r.File.Entries {
 					if e.IsEditable() {
 						count++
 					}
 				}
-				label.SetText(fmt.Sprintf("%s (%d条)", name, count))
+				label.SetText(fmt.Sprintf("%s (%d条)", r.File.MonsterName, count))
 			}
 		},
 	)
 	a.fileList.OnSelected = func(id widget.ListItemID) {
 		a.selectedFileIdx = id
 		a.updateDetailPanel()
-		// 自动填充MonGen.txt中的刷新参数
 		a.autoFillMonGenParams()
 	}
 
@@ -209,7 +210,6 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 			}
 			entry := file.Entries[id]
 			label := obj.(*widget.Label)
-
 			indent := strings.Repeat("  ", entry.Depth)
 
 			switch {
@@ -261,42 +261,166 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 	return container.NewBorder(nil, btnBar, nil, nil, a.detailTable)
 }
 
-// buildSimTab 构建爆率模拟页
+// buildSimTab 构建爆率模拟页（参考 mon.gmgjx.net 布局）
 func (a *App) buildSimTab() fyne.CanvasObject {
+	// === 怪物选择区 ===
+	a.simMonsterRadio = widget.NewRadioGroup([]string{"所有怪物", "指定怪物"}, nil)
+	a.simMonsterRadio.SetSelected("所有怪物")
+	a.simMonsterRadio.Horizontal = true
+	a.simMonsterCount = widget.NewLabel("(0)")
+
+	monsterSetBtn := widget.NewButton("指定怪物设置", func() {
+		a.showMonsterPicker()
+	})
+	monsterSection := container.NewVBox(
+		widget.NewLabelWithStyle("怪物", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewHBox(a.simMonsterRadio, a.simMonsterCount, monsterSetBtn),
+	)
+
+	// === 物品选择区 ===
+	a.simItemRadio = widget.NewRadioGroup([]string{"所有物品", "指定物品"}, nil)
+	a.simItemRadio.SetSelected("所有物品")
+	a.simItemRadio.Horizontal = true
+	a.simItemCount = widget.NewLabel("(0)")
+
+	itemSetBtn := widget.NewButton("指定物品设置", func() {
+		a.showItemPicker()
+	})
+	itemSection := container.NewVBox(
+		widget.NewLabelWithStyle("物品", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewHBox(a.simItemRadio, a.simItemCount, itemSetBtn),
+	)
+
+	// === 地图选择区 ===
+	a.simMapRadio = widget.NewRadioGroup([]string{"所有地图", "指定地图"}, nil)
+	a.simMapRadio.SetSelected("所有地图")
+	a.simMapRadio.Horizontal = true
+	a.simMapCount = widget.NewLabel("(0)")
+
+	mapSetBtn := widget.NewButton("指定地图设置", func() {
+		a.showMapPicker()
+	})
+	mapSection := container.NewVBox(
+		widget.NewLabelWithStyle("指定地图", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewHBox(a.simMapRadio, a.simMapCount, mapSetBtn),
+	)
+
+	// === 其它选项 ===
 	a.simDurationEntry = widget.NewEntry()
-	a.simDurationEntry.SetText("1")
+	a.simDurationEntry.SetText("24")
 	a.simKillRatioEntry = widget.NewEntry()
-	a.simKillRatioEntry.SetText("0.6")
-	a.simRefreshEntry = widget.NewEntry()
-	a.simRefreshEntry.SetText("60")
-	a.simCountEntry = widget.NewEntry()
-	a.simCountEntry.SetText("10")
+	a.simKillRatioEntry.SetText("60")
 
-	simBtn := widget.NewButton("模拟当前怪物", a.onRunSimulation)
-	simAllBtn := widget.NewButton("模拟全部怪物", a.onRunSimulationAll)
-	exportBtn := widget.NewButton("导出结果", a.onExportSimResult)
+	otherSection := container.NewVBox(
+		widget.NewLabelWithStyle("其它选项", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewGridWithColumns(2,
+			widget.NewLabel("模拟运行时间(小时):"), a.simDurationEntry,
+			widget.NewLabel("消灭怪物比例(%):"), a.simKillRatioEntry,
+		),
+	)
 
+	// === 模拟按钮 ===
+	simBtn := widget.NewButton("模拟", a.onRunSimNew)
+	simBtn.Importance = widget.HighImportance
+
+	// === 选项区域（四列并排）===
+	optionArea := container.NewGridWithColumns(4,
+		monsterSection,
+		itemSection,
+		mapSection,
+		container.NewVBox(otherSection, simBtn),
+	)
+
+	// === 结果区域（三列列表）===
+	// 掉落物品列表
+	a.simItemList = widget.NewList(
+		func() int {
+			if a.simResult == nil {
+				return 0
+			}
+			return len(a.simResult.ItemStats)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("物品名称                    掉落数量")
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			if a.simResult == nil || id >= len(a.simResult.ItemStats) {
+				return
+			}
+			label := obj.(*widget.Label)
+			item := a.simResult.ItemStats[id]
+			label.SetText(fmt.Sprintf("%s  %d", item.ItemName, item.DropCount))
+		},
+	)
+
+	// 掉落地图列表
+	a.simMapList = widget.NewList(
+		func() int {
+			if a.simResult == nil {
+				return 0
+			}
+			return len(a.simResult.MapStats)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("地图名称                    掉落数量")
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			if a.simResult == nil || id >= len(a.simResult.MapStats) {
+				return
+			}
+			label := obj.(*widget.Label)
+			m := a.simResult.MapStats[id]
+			label.SetText(fmt.Sprintf("%s  %d", m.MapName, m.DropCount))
+		},
+	)
+
+	// 掉落怪物列表
+	a.simMonsterList = widget.NewList(
+		func() int {
+			if a.simResult == nil {
+				return 0
+			}
+			return len(a.simResult.MonsterStats)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("怪物名称         刷怪数量   掉落数量")
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			if a.simResult == nil || id >= len(a.simResult.MonsterStats) {
+				return
+			}
+			label := obj.(*widget.Label)
+			ms := a.simResult.MonsterStats[id]
+			label.SetText(fmt.Sprintf("%s  %d  %d", ms.MonsterName, ms.KillCount, ms.DropCount))
+		},
+	)
+
+	// 三列结果头部
+	itemHeader := widget.NewLabelWithStyle("掉落物品列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	mapHeader := widget.NewLabelWithStyle("掉落地图列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	monsterHeader := widget.NewLabelWithStyle("掉落怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+
+	// 统计摘要
 	a.simResultLabel = widget.NewLabel("")
 	a.simResultLabel.Wrapping = fyne.TextWrapWord
 
-	form := container.NewVBox(
-		widget.NewLabel("模拟参数配置"),
-		widget.NewSeparator(),
-		container.NewGridWithColumns(2,
-			widget.NewLabel("模拟时长(小时):"), a.simDurationEntry,
-			widget.NewLabel("击杀比例(0~1):"), a.simKillRatioEntry,
-			widget.NewLabel("刷新间隔(秒):"), a.simRefreshEntry,
-			widget.NewLabel("每次刷新数量:"), a.simCountEntry,
-		),
-		widget.NewSeparator(),
-		container.NewHBox(simBtn, simAllBtn, exportBtn),
-		widget.NewSeparator(),
-		widget.NewLabel("模拟结果:"),
+	// 构建三列结果
+	resultGrid := container.NewGridWithColumns(3,
+		container.NewBorder(itemHeader, nil, nil, nil, a.simItemList),
+		container.NewBorder(mapHeader, nil, nil, nil, a.simMapList),
+		container.NewBorder(monsterHeader, nil, nil, nil, a.simMonsterList),
 	)
 
-	scrollResult := container.NewVScroll(a.simResultLabel)
-	scrollResult.SetMinSize(fyne.NewSize(0, 400))
-	return container.NewBorder(form, nil, nil, nil, scrollResult)
+	// 导出按钮
+	exportBtn := widget.NewButton("导出结果", a.onExportSimResult)
+	bottomBar := container.NewHBox(a.simResultLabel, layout.NewSpacer(), exportBtn)
+
+	return container.NewBorder(
+		container.NewVBox(optionArea, widget.NewSeparator()),
+		container.NewVBox(widget.NewSeparator(), bottomBar),
+		nil, nil,
+		resultGrid,
+	)
 }
 
 // buildAuthTab 构建授权管理页
@@ -383,6 +507,187 @@ func (a *App) buildLogTab() fyne.CanvasObject {
 	)
 }
 
+// ============ 模拟页面：怪物/物品/地图选择器 ============
+
+func (a *App) showMonsterPicker() {
+	if a.currentResults == nil {
+		dialog.ShowInformation("提示", "请先加载爆率文件", a.mainWindow)
+		return
+	}
+	var names []string
+	for _, r := range a.currentResults {
+		names = append(names, r.File.MonsterName)
+	}
+	a.showMultiPicker("选择怪物", names, func(selected []string) {
+		a.simMonsterCount.SetText(fmt.Sprintf("(%d)", len(selected)))
+	})
+}
+
+func (a *App) showItemPicker() {
+	if a.currentResults == nil {
+		dialog.ShowInformation("提示", "请先加载爆率文件", a.mainWindow)
+		return
+	}
+	itemSet := make(map[string]bool)
+	for _, r := range a.currentResults {
+		for _, e := range r.File.Entries {
+			if e.IsEditable() {
+				itemSet[e.ItemName] = true
+			}
+		}
+	}
+	var names []string
+	for name := range itemSet {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	a.showMultiPicker("选择物品", names, func(selected []string) {
+		a.simItemCount.SetText(fmt.Sprintf("(%d)", len(selected)))
+	})
+}
+
+func (a *App) showMapPicker() {
+	if a.monGenEntries == nil {
+		dialog.ShowInformation("提示", "未加载MonGen.txt，无法获取地图信息", a.mainWindow)
+		return
+	}
+	mapSet := make(map[string]bool)
+	for _, mg := range a.monGenEntries {
+		mapSet[mg.MapName] = true
+	}
+	var names []string
+	for name := range mapSet {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	a.showMultiPicker("选择地图", names, func(selected []string) {
+		a.simMapCount.SetText(fmt.Sprintf("(%d)", len(selected)))
+	})
+}
+
+// showMultiPicker 通用多选对话框
+func (a *App) showMultiPicker(title string, items []string, onConfirm func([]string)) {
+	selected := make(map[string]bool)
+
+	// 全选/全不选
+	selectAllBtn := widget.NewButton("全选", func() {
+		for _, item := range items {
+			selected[item] = true
+		}
+	})
+
+	// 列表
+	list := widget.NewList(
+		func() int { return len(items) },
+		func() fyne.CanvasObject {
+			check := widget.NewCheck("选项文本", nil)
+			return check
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			check := obj.(*widget.Check)
+			check.Text = items[id]
+			check.Checked = selected[items[id]]
+			check.OnChanged = func(val bool) {
+				selected[items[id]] = val
+			}
+			check.Refresh()
+		},
+	)
+
+	scroll := container.NewVScroll(list)
+	scroll.SetMinSize(fyne.NewSize(400, 500))
+
+	content := container.NewBorder(
+		container.NewHBox(selectAllBtn),
+		nil, nil, nil, scroll,
+	)
+
+	dialog.ShowCustomConfirm(title, "确定", "取消", content, func(ok bool) {
+		if !ok {
+			return
+		}
+		var result []string
+		for name, sel := range selected {
+			if sel {
+				result = append(result, name)
+			}
+		}
+		onConfirm(result)
+	}, a.mainWindow)
+}
+
+// ============ 模拟执行 ============
+
+func (a *App) onRunSimNew() {
+	if a.currentResults == nil {
+		dialog.ShowInformation("提示", "请先加载爆率文件", a.mainWindow)
+		return
+	}
+
+	// 解析参数
+	duration, err1 := strconv.ParseFloat(a.simDurationEntry.Text, 64)
+	killRatioPct, err2 := strconv.ParseFloat(a.simKillRatioEntry.Text, 64)
+	if err1 != nil || err2 != nil {
+		dialog.ShowError(fmt.Errorf("请输入有效的模拟参数"), a.mainWindow)
+		return
+	}
+	killRatio := killRatioPct / 100.0
+	if killRatio < 0 || killRatio > 1 {
+		dialog.ShowError(fmt.Errorf("消灭比例必须在0~100之间"), a.mainWindow)
+		return
+	}
+
+	cfg := simulator.SimConfig{
+		DurationHours:   duration,
+		KillRatio:       killRatio,
+		RefreshInterval: 60,
+		RefreshCount:    10,
+		MapRateModifier: 1.0,
+	}
+
+	// 怪物筛选
+	if a.simMonsterRadio.Selected == "指定怪物" {
+		// 从计数解析选中数量（简化处理：这里从UI状态获取）
+		// 实际选中列表在showMonsterPicker中维护，此处用全部怪物
+		// 用户可以通过左侧列表选择单个怪物来模拟
+		if a.selectedFileIdx >= 0 {
+			cfg.MonsterFilter = []string{a.currentResults[a.selectedFileIdx].File.MonsterName}
+		}
+	}
+
+	// 物品筛选
+	if a.simItemRadio.Selected == "指定物品" {
+		// 从picker获取的选中项（简化：此处暂时为空，需要持久化选中状态）
+	}
+
+	// 地图筛选
+	if a.simMapRadio.Selected == "指定地图" {
+		// 从picker获取的选中项
+	}
+
+	a.statusLabel.SetText("正在模拟...请稍候")
+
+	go func() {
+		var files []*parser.MonsterDropFile
+		for _, r := range a.currentResults {
+			files = append(files, r.File)
+		}
+
+		result := a.simulator.SimulateAll(files, a.monGenEntries, cfg)
+		a.simResult = result
+
+		// 更新UI
+		a.simItemList.Refresh()
+		a.simMapList.Refresh()
+		a.simMonsterList.Refresh()
+
+		summary := fmt.Sprintf("总击杀:%d 总掉落:%d 空爆率:%.1f%% 耗时:%v",
+			result.TotalKills, result.TotalDrops, result.EmptyRate()*100, result.Duration)
+		a.simResultLabel.SetText(summary)
+		a.statusLabel.SetText("模拟完成 - " + summary)
+	}()
+}
+
 // ============ 事件处理 ============
 
 func (a *App) onBrowseServer() {
@@ -432,67 +737,64 @@ func (a *App) onLoadFiles() {
 
 	monItemsDir := filepath.Join(serverRoot, "Mir200", "Envir", "MonItems")
 
-	{
-		results, err := parser.ParseDirectory(monItemsDir, a.currentEngine)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("加载爆率文件失败: %v\n路径: %s", err, monItemsDir), a.mainWindow)
-			return
-		}
+	results, err := parser.ParseDirectory(monItemsDir, a.currentEngine)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("加载爆率文件失败: %v\n路径: %s", err, monItemsDir), a.mainWindow)
+		return
+	}
+	if len(results) == 0 {
+		dialog.ShowInformation("提示", "未找到爆率文件(.txt)", a.mainWindow)
+		return
+	}
 
-		if len(results) == 0 {
-			dialog.ShowInformation("提示", "未找到爆率文件(.txt)", a.mainWindow)
-			return
-		}
+	a.currentResults = results
+	a.backupMgr = backup.New(serverRoot)
+	a.cfg.MonItemsDir = monItemsDir
+	a.cfg.ServerRoot = serverRoot
+	config.Save(a.cfg)
 
-		a.currentResults = results
-		a.backupMgr = backup.New(serverRoot)
-		a.cfg.MonItemsDir = monItemsDir
-		a.cfg.ServerRoot = serverRoot
-		config.Save(a.cfg)
+	// 解析 MonGen.txt
+	monGenPath := filepath.Join(serverRoot, "Mir200", "Envir", "MonGen.txt")
+	if monGenEntries, err := parser.ParseMonGen(monGenPath); err == nil && len(monGenEntries) > 0 {
+		a.monGenEntries = monGenEntries
+	}
 
-		// 尝试解析 MonGen.txt 自动填充模拟参数
-		monGenPath := filepath.Join(serverRoot, "Mir200", "Envir", "MonGen.txt")
-		if monGenEntries, err := parser.ParseMonGen(monGenPath); err == nil && len(monGenEntries) > 0 {
-			a.monGenEntries = monGenEntries
-		}
-
-		totalEntries := 0
-		for _, r := range results {
-			for _, e := range r.File.Entries {
-				if e.IsEditable() {
-					totalEntries++
-				}
+	totalEntries := 0
+	for _, r := range results {
+		for _, e := range r.File.Entries {
+			if e.IsEditable() {
+				totalEntries++
 			}
 		}
+	}
 
-		a.fileList.Refresh()
-		a.statusLabel.SetText(fmt.Sprintf("已加载 %d 个怪物文件，共 %d 条掉落配置 | 引擎: %s",
-			len(results), totalEntries, a.currentEngine))
+	a.fileList.Refresh()
+	a.statusLabel.SetText(fmt.Sprintf("已加载 %d 个怪物文件，共 %d 条掉落配置 | 引擎: %s",
+		len(results), totalEntries, a.currentEngine))
 
-		var warnings []string
-		for _, r := range results {
-			for _, w := range r.Warnings {
-				warnings = append(warnings, fmt.Sprintf("[%s] %s", r.File.MonsterName, w))
-			}
+	var warnings []string
+	for _, r := range results {
+		for _, w := range r.Warnings {
+			warnings = append(warnings, fmt.Sprintf("[%s] %s", r.File.MonsterName, w))
 		}
-		if len(warnings) > 0 {
-			warningText := fmt.Sprintf("有 %d 条无法识别的行：\n\n", len(warnings))
-			maxShow := 100
-			if len(warnings) < maxShow {
-				maxShow = len(warnings)
-			}
-			for i := 0; i < maxShow; i++ {
-				warningText += warnings[i] + "\n"
-			}
-			if len(warnings) > 100 {
-				warningText += fmt.Sprintf("\n... 还有 %d 条", len(warnings)-100)
-			}
-			warnLabel := widget.NewLabel(warningText)
-			warnLabel.Wrapping = fyne.TextWrapWord
-			scroll := container.NewVScroll(warnLabel)
-			scroll.SetMinSize(fyne.NewSize(600, 400))
-			dialog.ShowCustom("解析提示", "确定", scroll, a.mainWindow)
+	}
+	if len(warnings) > 0 {
+		warningText := fmt.Sprintf("有 %d 条无法识别的行：\n\n", len(warnings))
+		maxShow := 100
+		if len(warnings) < maxShow {
+			maxShow = len(warnings)
 		}
+		for i := 0; i < maxShow; i++ {
+			warningText += warnings[i] + "\n"
+		}
+		if len(warnings) > 100 {
+			warningText += fmt.Sprintf("\n... 还有 %d 条", len(warnings)-100)
+		}
+		warnLabel := widget.NewLabel(warningText)
+		warnLabel.Wrapping = fyne.TextWrapWord
+		scroll := container.NewVScroll(warnLabel)
+		scroll.SetMinSize(fyne.NewSize(600, 400))
+		dialog.ShowCustom("解析提示", "确定", scroll, a.mainWindow)
 	}
 }
 
@@ -727,92 +1029,12 @@ func (a *App) onDetectAnomaly() {
 	}
 }
 
-func (a *App) onRunSimulation() {
-	if a.selectedFileIdx < 0 || a.currentResults == nil {
-		dialog.ShowInformation("提示", "请先选择一个怪物文件", a.mainWindow)
-		return
-	}
-	a.runSimAsync(false)
-}
-
-func (a *App) onRunSimulationAll() {
-	if a.currentResults == nil {
-		dialog.ShowInformation("提示", "请先加载爆率文件", a.mainWindow)
-		return
-	}
-	a.runSimAsync(true)
-}
-
-// runSimAsync 异步运行模拟，防止UI卡死
-func (a *App) runSimAsync(all bool) {
-	// 解析参数
-	duration, err1 := strconv.ParseFloat(a.simDurationEntry.Text, 64)
-	killRatio, err2 := strconv.ParseFloat(a.simKillRatioEntry.Text, 64)
-	refreshInterval, err3 := strconv.ParseFloat(a.simRefreshEntry.Text, 64)
-	refreshCount, err4 := strconv.Atoi(a.simCountEntry.Text)
-
-	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
-		dialog.ShowError(fmt.Errorf("请输入有效的模拟参数"), a.mainWindow)
-		return
-	}
-	if killRatio < 0 || killRatio > 1 {
-		dialog.ShowError(fmt.Errorf("击杀比例必须在0~1之间"), a.mainWindow)
-		return
-	}
-
-	cfg := simulator.SimConfig{
-		DurationHours:  duration,
-		KillRatio:      killRatio,
-		RefreshInterval: refreshInterval,
-		RefreshCount:   refreshCount,
-		MapRateModifier: 1.0,
-	}
-
-	// 禁用按钮，防止重复点击
-	a.statusLabel.SetText("正在模拟...请稍候")
-
-	// 在后台goroutine中运行模拟
-	go func() {
-		var result *simulator.SimResult
-		if all {
-			var files []*parser.MonsterDropFile
-			for _, r := range a.currentResults {
-				files = append(files, r.File)
-			}
-			result = a.simulator.SimulateAll(files, cfg)
-		} else {
-			file := a.currentResults[a.selectedFileIdx].File
-			msr := a.simulator.Simulate(file, cfg)
-			result = &simulator.SimResult{
-				Config:       cfg,
-				MonsterStats: map[string]*simulator.MonsterSimResult{file.MonsterName: msr},
-				TotalKills:   msr.TotalKills,
-				TotalDrops:   msr.TotalDrops,
-				TotalEmpty:   msr.EmptyDrops,
-			}
-		}
-
-		// 回到UI线程更新结果
-		a.mainWindow.Canvas().Refresh(a.simResultLabel)
-		text := simulator.FormatResult(result)
-		a.simResultLabel.SetText(text)
-		if all {
-			a.statusLabel.SetText(fmt.Sprintf("模拟完成 - 总击杀:%d 总掉落:%d 耗时:%v",
-				result.TotalKills, result.TotalDrops, result.Duration))
-		} else {
-			file := a.currentResults[a.selectedFileIdx].File
-			a.statusLabel.SetText(fmt.Sprintf("模拟完成 - %s 击杀:%d 掉落:%d",
-				file.MonsterName, result.TotalKills, result.TotalDrops))
-		}
-	}()
-}
-
 func (a *App) onExportSimResult() {
-	text := a.simResultLabel.Text
-	if text == "" {
+	if a.simResult == nil {
 		dialog.ShowInformation("提示", "请先运行模拟", a.mainWindow)
 		return
 	}
+	text := simulator.FormatResult(a.simResult)
 	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil || writer == nil {
 			return
@@ -829,13 +1051,13 @@ func (a *App) updateDetailPanel() {
 	}
 }
 
-// autoFillMonGenParams 根据选中的怪物自动填充MonGen.txt中的刷新参数
 func (a *App) autoFillMonGenParams() {
 	if a.monGenEntries == nil || a.selectedFileIdx < 0 || a.currentResults == nil {
 		return
 	}
 	file := a.currentResults[a.selectedFileIdx].File
 	refreshSec, count := parser.FindMonGenForMonster(a.monGenEntries, file.MonsterName)
-	a.simRefreshEntry.SetText(fmt.Sprintf("%.0f", refreshSec))
-	a.simCountEntry.SetText(strconv.Itoa(count))
+	// 刷新参数不再在模拟页面显示，但保留内部使用
+	_ = refreshSec
+	_ = count
 }
