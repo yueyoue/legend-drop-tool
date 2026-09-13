@@ -509,7 +509,7 @@ func (a *App) onEntrySelected(id widget.ListItemID) {
 
 func (a *App) onAddEntry() {
 	if a.selectedFileIdx < 0 || a.currentResults == nil {
-		dialog.ShowInfo("提示", "请先选择一个怪物文件", a.mainWindow)
+		dialog.ShowInformation("提示", "请先选择一个怪物文件", a.mainWindow)
 		return
 	}
 
@@ -549,7 +549,7 @@ func (a *App) onAddEntry() {
 
 func (a *App) onBatchMultiply() {
 	if a.selectedFileIdx < 0 || a.currentResults == nil {
-		dialog.ShowInfo("提示", "请先选择一个怪物文件", a.mainWindow)
+		dialog.ShowInformation("提示", "请先选择一个怪物文件", a.mainWindow)
 		return
 	}
 
@@ -575,7 +575,7 @@ func (a *App) onBatchMultiply() {
 
 func (a *App) onBatchSetProb() {
 	if a.selectedFileIdx < 0 || a.currentResults == nil {
-		dialog.ShowInfo("提示", "请先选择一个怪物文件", a.mainWindow)
+		dialog.ShowInformation("提示", "请先选择一个怪物文件", a.mainWindow)
 		return
 	}
 
@@ -643,7 +643,7 @@ func (a *App) onBackupCurrent() {
 
 func (a *App) onBackupAll() {
 	if a.backupMgr == nil {
-		dialog.ShowInfo("提示", "请先加载服务端目录", a.mainWindow)
+		dialog.ShowInformation("提示", "请先加载服务端目录", a.mainWindow)
 		return
 	}
 	dir := filepath.Join(a.cfg.ServerRoot, "Mir200", "Envir", "MonItems")
@@ -658,7 +658,7 @@ func (a *App) onBackupAll() {
 
 func (a *App) onDetectAnomaly() {
 	if a.currentResults == nil {
-		dialog.ShowInfo("提示", "请先加载爆率文件", a.mainWindow)
+		dialog.ShowInformation("提示", "请先加载爆率文件", a.mainWindow)
 		return
 	}
 
@@ -695,7 +695,7 @@ func (a *App) onDetectAnomaly() {
 
 func (a *App) onRunSimulation() {
 	if a.selectedFileIdx < 0 || a.currentResults == nil {
-		dialog.ShowInfo("提示", "请先选择一个怪物文件", a.mainWindow)
+		dialog.ShowInformation("提示", "请先选择一个怪物文件", a.mainWindow)
 		return
 	}
 	result := a.runSim(false)
@@ -706,7 +706,7 @@ func (a *App) onRunSimulation() {
 
 func (a *App) onRunSimulationAll() {
 	if a.currentResults == nil {
-		dialog.ShowInfo("提示", "请先加载爆率文件", a.mainWindow)
+		dialog.ShowInformation("提示", "请先加载爆率文件", a.mainWindow)
 		return
 	}
 	result := a.runSim(true)
@@ -768,7 +768,7 @@ func (a *App) runSim(all bool) *simulator.SimResult {
 func (a *App) onExportSimResult() {
 	text := a.simResultLabel.Text
 	if text == "" {
-		dialog.ShowInfo("提示", "请先运行模拟", a.mainWindow)
+		dialog.ShowInformation("提示", "请先运行模拟", a.mainWindow)
 		return
 	}
 	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
