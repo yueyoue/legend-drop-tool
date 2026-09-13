@@ -9,6 +9,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
+
+	"github.com/yueyoue/legend-drop-tool/fonts"
 )
 
 // CJKTheme 包含中文支持的主题
@@ -24,9 +26,17 @@ func NewCJKTheme() *CJKTheme {
 	return t
 }
 
-// loadFont 加载中文字体
+// loadFont 加载中文字体，优先使用嵌入字体，其次本地文件，最后系统字体
 func (t *CJKTheme) loadFont() {
-	// 尝试从exe同目录加载字体文件
+	// 1. 优先使用编译时嵌入的字体
+	if len(fonts.NotoSansSC) > 1024 {
+		t.regularFont = fyne.NewStaticResource("NotoSansSC.ttf", fonts.NotoSansSC)
+		t.boldFont = t.regularFont
+		fmt.Printf("[CJKTheme] 使用嵌入字体: NotoSansSC.ttf (%d bytes)\n", len(fonts.NotoSansSC))
+		return
+	}
+
+	// 2. 尝试从exe同目录加载字体文件
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 
@@ -34,12 +44,13 @@ func (t *CJKTheme) loadFont() {
 		filepath.Join(exeDir, "msyh.ttc"),
 		filepath.Join(exeDir, "msyh.ttf"),
 		filepath.Join(exeDir, "simhei.ttf"),
+		filepath.Join(exeDir, "NotoSansSC.ttf"),
 		filepath.Join(exeDir, "fonts", "msyh.ttc"),
 		filepath.Join(exeDir, "fonts", "msyh.ttf"),
 		filepath.Join(exeDir, "fonts", "simhei.ttf"),
+		filepath.Join(exeDir, "fonts", "NotoSansSC.ttf"),
 	}
 
-	// 尝试本地字体文件
 	for _, fontPath := range localFonts {
 		if data, err := os.ReadFile(fontPath); err == nil && len(data) > 1024 {
 			t.regularFont = fyne.NewStaticResource(filepath.Base(fontPath), data)
@@ -49,7 +60,7 @@ func (t *CJKTheme) loadFont() {
 		}
 	}
 
-	// Windows 系统字体
+	// 3. Windows 系统字体
 	if runtime.GOOS == "windows" {
 		fontDirs := []string{}
 		for _, envVar := range []string{"WINDIR", "windir", "SystemRoot"} {

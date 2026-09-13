@@ -30,20 +30,12 @@ jobs:
           CGO_ENABLED: 1
         run: go build -ldflags "-s -w -H windowsgui" -o legend-drop-tool.exe ./cmd/
 
-      - name: Copy Chinese font
-        shell: pwsh
-        run: |
-          # 从Windows系统复制微软雅黑字体到exe同目录
-          Copy-Item "C:\Windows\Fonts\msyh.ttc" "msyh.ttc"
-          Write-Host "Font copied: $(Get-Item msyh.ttc | Select-Object -ExpandProperty Length) bytes"
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: legend-drop-tool-windows-amd64
           path: |
             legend-drop-tool.exe
-            msyh.ttc
 
   release:
     needs: build-windows
@@ -62,5 +54,4 @@ jobs:
         with:
           files: |
             legend-drop-tool.exe
-            msyh.ttc
           generate_release_notes: true

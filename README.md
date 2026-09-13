@@ -48,6 +48,8 @@
 
 前往 [Releases](../../releases) 页面下载最新版本的 `legend-drop-tool.exe`。
 
+> 单文件即可运行，中文字体已内嵌，无需额外安装字体或依赖。
+
 ## 使用方法
 
 1. 下载 `legend-drop-tool.exe`
@@ -65,6 +67,8 @@
 go mod tidy
 go build -ldflags "-s -w -H windowsgui" -o legend-drop-tool.exe ./cmd/
 ```
+
+> 中文字体（Noto Sans SC）已通过 `//go:embed` 嵌入二进制，编译时自动包含，无需额外步骤。
 
 或通过 GitHub Actions 自动编译（推送 tag 触发）：
 
@@ -85,9 +89,13 @@ git push origin v1.0.0
 legend-drop-tool/
 ├── cmd/
 │   └── main.go           # 入口
+├── fonts/
+│   ├── NotoSansSC.ttf    # 中文字体（编译时嵌入）
+│   └── fonts.go          # //go-embed 声明
 ├── pkg/
 │   ├── gui/              # GUI界面
-│   │   └── app.go
+│   │   ├── app.go
+│   │   └── theme.go      # CJK中文主题
 │   ├── parser/           # 爆率文件解析
 │   │   ├── types.go
 │   │   └── parser.go
