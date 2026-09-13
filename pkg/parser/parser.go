@@ -441,7 +441,10 @@ func FindMonGenForMonster(monGenEntries []*MonGenEntry, monsterName string) (ref
 }
 
 // ParseMapInfo 解析 MapInfo.txt 获取地图编号到名称的映射
-// 格式: 地图编号\t地图名称 或 地图编号 地图名称
+// 常见格式:
+//   地图编号\t地图名称
+//   地图编号 地图名称 X Y
+//   地图编号,地图名称
 func ParseMapInfo(filePath string) (map[string]string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -457,11 +460,29 @@ func ParseMapInfo(filePath string) (map[string]string, error) {
 		if line == "" || strings.HasPrefix(line, ";") {
 			continue
 		}
-		// 支持 Tab 或空格分隔
+
+		// 尝试逗号分隔
+		if strings.Contains(line, ",") {
+		parts := strings.SplitN(line, ",", 2)
+			if len(parts) >= 2 {
+				mapID := strings.TrimSpace(parts[0])
+				mapName := strings.TrimSpace(parts[1])
+				if mapID != "" && mapName != "" {
+					result[mapID] = mapName
+				}
+				continue
+			}
+		}
+
+		// Tab 或空格分隔
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
 			mapID := fields[0]
-			mapName := strings.Join(fields[1:], " ")
+			mapName := fields[1]
+			// 如果第二个字段是数字，可能是坐标，跳过
+			if _, err := strconv.Atoi(mapName); err == nil {
+				continue
+			}
 			result[mapID] = mapName
 		}
 	}

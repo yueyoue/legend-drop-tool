@@ -38,6 +38,8 @@ type ItemStat struct {
 	DropCount   int64
 	TotalQty    int64
 	Probability float64
+	Maps        map[string]bool  // 掉落该物品的地图
+	Monsters    map[string]bool  // 掉落该物品的怪物
 }
 
 // MapStat 地图统计
@@ -250,10 +252,23 @@ func (s *Simulator) SimulateAll(
 						itemAgg[dp.entry.ItemName] = &ItemStat{
 							ItemName:    dp.entry.ItemName,
 							Probability: dp.entry.Probability(),
+							Maps:        make(map[string]bool),
+							Monsters:    make(map[string]bool),
 						}
 					}
 					itemAgg[dp.entry.ItemName].DropCount++
 					itemAgg[dp.entry.ItemName].TotalQty += int64(dp.entry.Quantity)
+					itemAgg[dp.entry.ItemName].Monsters[monsterName] = true
+					if hasMapInfo {
+						for _, mi := range mapInfos {
+							if len(mapFilterSet) > 0 && !mapFilterSet[mi.mapName] {
+								continue
+							}
+							itemAgg[dp.entry.ItemName].Maps[mi.mapName] = true
+						}
+					} else {
+						itemAgg[dp.entry.ItemName].Maps["未知地图"] = true
+					}
 
 					// 怪物掉落统计
 					monsterAgg[monsterName].DropCount++
