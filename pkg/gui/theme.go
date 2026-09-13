@@ -1,7 +1,6 @@
 package gui
 
 import (
-	_ "embed"
 	"fmt"
 	"image/color"
 	"os"
@@ -11,9 +10,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 )
-
-//go:embed ../../assets/fonts/msyh.ttc
-var embeddedFont []byte
 
 // CJKTheme 包含中文支持的主题
 type CJKTheme struct {
@@ -30,49 +26,56 @@ func NewCJKTheme() *CJKTheme {
 
 // loadFont 加载中文字体
 func (t *CJKTheme) loadFont() {
-	// 优先使用嵌入的字体
-	if len(embeddedFont) > 1024 {
-		t.regularFont = fyne.NewStaticResource("msyh.ttc", embeddedFont)
-		t.boldFont = t.regularFont
-		fmt.Printf("[CJKTheme] 使用嵌入字体 (%d bytes)\n", len(embeddedFont))
-		return
+	// 尝试从exe同目录加载字体文件
+	exePath, _ := os.Executable()
+	exeDir := filepath.Dir(exePath)
+
+	localFonts := []string{
+		filepath.Join(exeDir, "msyh.ttc"),
+		filepath.Join(exeDir, "msyh.ttf"),
+		filepath.Join(exeDir, "simhei.ttf"),
+		filepath.Join(exeDir, "fonts", "msyh.ttc"),
+		filepath.Join(exeDir, "fonts", "msyh.ttf"),
+		filepath.Join(exeDir, "fonts", "simhei.ttf"),
 	}
 
-	// 备选：从系统加载
-	if runtime.GOOS != "windows" {
-		return
-	}
-
-	fontDirs := []string{}
-	for _, envVar := range []string{"WINDIR", "windir", "SystemRoot"} {
-		if v := os.Getenv(envVar); v != "" {
-			fontDirs = append(fontDirs, filepath.Join(v, "Fonts"))
-		}
-	}
-	fontDirs = append(fontDirs, `C:\Windows\Fonts`, `D:\Windows\Fonts`)
-
-	fontNames := []string{"msyh.ttc", "msyhbd.ttc", "simhei.ttf", "simsun.ttc"}
-
-	for _, dir := range fontDirs {
-		for _, name := range fontNames {
-			fontPath := filepath.Join(dir, name)
-			data, err := os.ReadFile(fontPath)
-			if err != nil || len(data) < 1024 {
-				continue
-			}
-			res := fyne.NewStaticResource(name, data)
-			if t.regularFont == nil {
-				t.regularFont = res
-				fmt.Printf("[CJKTheme] 系统字体: %s (%d bytes)\n", fontPath, len(data))
-			}
-			if t.regularFont != nil {
-				t.boldFont = t.regularFont
-				return
-			}
+	// 尝试本地字体文件
+	for _, fontPath := range localFonts {
+		if data, err := os.ReadFile(fontPath); err == nil && len(data) > 1024 {
+			t.regularFont = fyne.NewStaticResource(filepath.Base(fontPath), data)
+			t.boldFont = t.regularFont
+			fmt.Printf("[CJKTheme] 本地字体: %s (%d bytes)\n", fontPath, len(data))
+			return
 		}
 	}
 
-	fmt.Println("[CJKTheme] 警告: 未找到中文字体")
+	// Windows 系统字体
+	if runtime.GOOS == "windows" {
+		fontDirs := []string{}
+		for _, envVar := range []string{"WINDIR", "windir", "SystemRoot"} {
+			if v := os.Getenv(envVar); v != "" {
+				fontDirs = append(fontDirs, filepath.Join(v, "Fonts"))
+			}
+		}
+		fontDirs = append(fontDirs, `C:\Windows\Fonts`, `D:\Windows\Fonts`)
+
+		fontNames := []string{"msyh.ttc", "msyhbd.ttc", "simhei.ttf", "simsun.ttc"}
+
+		for _, dir := range fontDirs {
+			for _, name := range fontNames {
+				fontPath := filepath.Join(dir, name)
+				data, err := os.ReadFile(fontPath)
+				if err == nil && len(data) > 1024 {
+					t.regularFont = fyne.NewStaticResource(name, data)
+					t.boldFont = t.regularFont
+					fmt.Printf("[CJKTheme] 系统字体: %s (%d bytes)\n", fontPath, len(data))
+					return
+				}
+			}
+		}
+	}
+
+	fmt.Println("[CJKTheme] 警告: 未找到中文字体,中文可能显示为方块")
 }
 
 // Font 返回字体资源
