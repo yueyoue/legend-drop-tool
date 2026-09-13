@@ -243,11 +243,8 @@ func (s *Simulator) SimulateAll(
 
 		// 模拟掉落
 		for i := int64(0); i < totalKills; i++ {
-			dropped := false
 			for _, dp := range validEntries {
 				if s.rng.Float64() < dp.prob {
-					dropped = true
-
 					// 物品统计
 					if itemAgg[dp.entry.ItemName] == nil {
 						itemAgg[dp.entry.ItemName] = &ItemStat{
