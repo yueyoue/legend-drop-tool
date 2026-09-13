@@ -108,39 +108,47 @@ func (s *Simulator) Simulate(file *parser.MonsterDropFile, config SimConfig) *Mo
 
 	result.TotalKills = totalKills
 
-	// 收集有效的掉落条目
-	var validEntries []*parser.DropEntry
+	// 收集有效的掉落条目，并预计算概率
+	type dropProb struct {
+		entry *parser.DropEntry
+		prob  float64
+	}
+	var validEntries []dropProb
 	for _, entry := range file.Entries {
 		if entry.IsComment || entry.IsCallRef || entry.ProbabilityDenominator <= 0 {
 			continue
 		}
-		validEntries = append(validEntries, entry)
+		denominator := float64(entry.ProbabilityDenominator) / config.MapRateModifier
+		if denominator < 1 {
+			denominator = 1
+		}
+		prob := float64(entry.ProbabilityNumerator) / denominator
+		validEntries = append(validEntries, dropProb{entry: entry, prob: prob})
 	}
 
-	// 模拟每次击杀
+	if len(validEntries) == 0 {
+		result.EmptyDrops = totalKills
+		return result
+	}
+
+	// 模拟每次击杀（批量处理，减少分支判断）
 	for i := int64(0); i < totalKills; i++ {
 		dropped := false
-		for _, entry := range validEntries {
-			// 按概率判定是否掉落
-			denominator := float64(entry.ProbabilityDenominator) / config.MapRateModifier
-			if denominator < 1 {
-				denominator = 1
-			}
-			if s.rng.Float64() < (float64(entry.ProbabilityNumerator) / denominator) {
-				// 掉落成功
+		for _, dp := range validEntries {
+			if s.rng.Float64() < dp.prob {
 				dropped = true
 				result.TotalDrops++
 
-				stat, exists := result.ItemStats[entry.ItemName]
+				stat, exists := result.ItemStats[dp.entry.ItemName]
 				if !exists {
 					stat = &ItemStat{
-						ItemName:    entry.ItemName,
-						Probability: entry.Probability(),
+						ItemName:    dp.entry.ItemName,
+						Probability: dp.entry.Probability(),
 					}
-					result.ItemStats[entry.ItemName] = stat
+					result.ItemStats[dp.entry.ItemName] = stat
 				}
 				stat.DropCount++
-				stat.TotalQty += int64(entry.Quantity)
+				stat.TotalQty += int64(dp.entry.Quantity)
 			}
 		}
 		if !dropped {

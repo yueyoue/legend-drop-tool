@@ -9,6 +9,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 var (
@@ -35,6 +39,40 @@ var (
 	reIndentedDrop = regexp.MustCompile(`^\s+(\d+)/(\d+)\s+(.+?)(?:\s+(\d+))?\s*$`)
 )
 
+// decodeToUTF8 将文件字节解码为UTF-8字符串
+// 自动检测UTF-8/GBK/GB18030编码
+func decodeToUTF8(data []byte) string {
+	// 1. 去除BOM
+	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
+		data = data[3:] // UTF-8 BOM
+	} else if len(data) >= 2 && data[0] == 0xFF && data[1] == 0xFE {
+		data = data[2:] // UTF-16 LE BOM
+	} else if len(data) >= 2 && data[0] == 0xFE && data[1] == 0xFF {
+		data = data[2:] // UTF-16 BE BOM
+	}
+
+	// 2. 如果是合法UTF-8，直接返回
+	if utf8.Valid(data) {
+		return string(data)
+	}
+
+	// 3. 使用 golang.org/x/text 解码 GBK/GB18030
+	// GB18030 是 GBK 的超集，用 GB18030 解码器可以兼容两者
+	decoder := simplifiedchinese.GB18030.NewDecoder()
+	result, _, err := transform.Bytes(decoder, data)
+	if err != nil {
+		// GB18030 解码失败，尝试 GBK
+		decoder = simplifiedchinese.GBK.NewDecoder()
+		result, _, err = transform.Bytes(decoder, data)
+		if err != nil {
+			// 都失败了，回退到替换无效字节
+			return strings.ToValidUTF8(string(data), "�")
+		}
+	}
+
+	return string(result)
+}
+
 // ParseFile 解析单个爆率文件
 func ParseFile(filePath string, engine EngineType) (*ParseResult, error) {
 	data, err := os.ReadFile(filePath)
@@ -42,11 +80,8 @@ func ParseFile(filePath string, engine EngineType) (*ParseResult, error) {
 		return nil, fmt.Errorf("读取文件失败: %w", err)
 	}
 
-	// 处理BOM
-	content := string(data)
-	if len(content) >= 3 && content[0] == 0xEF && content[1] == 0xBB && content[2] == 0xBF {
-		content = content[3:]
-	}
+	// 智能解码：自动检测UTF-8/GBK并转换
+	content := decodeToUTF8(data)
 
 	monsterName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
 
@@ -331,4 +366,76 @@ func ResolveCallPath(callPath, monItemsDir string) string {
 
 	// 相对于MonItems目录
 	return filepath.Join(monItemsDir, callPath)
+}
+
+// MonGenEntry 刷怪配置条目
+type MonGenEntry struct {
+	MapName         string // 地图名
+	X               int    // X坐标
+	Y               int    // Y坐标
+	MonsterName     string // 怪物名
+	Range           int    // 刷新范围
+	Count           int    // 刷新数量
+	RefreshMinutes  int    // 刷新间隔(分钟)
+	RawLine         string
+}
+
+// ParseMonGen 解析 MonGen.txt 刷怪文件
+// 格式: 地图号 X Y 怪物名 范围 数量 刷新间隔(分钟)
+func ParseMonGen(filePath string) ([]*MonGenEntry, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("读取MonGen文件失败: %w", err)
+	}
+
+	content := decodeToUTF8(data)
+	scanner := bufio.NewScanner(strings.NewReader(content))
+
+	var entries []*MonGenEntry
+	lineNum := 0
+
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+
+		// 用空白字符分割
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+
+		entry := &MonGenEntry{
+			MapName:     fields[0],
+			MonsterName: fields[3],
+			RawLine:     line,
+		}
+
+		entry.X, _ = strconv.Atoi(fields[1])
+		entry.Y, _ = strconv.Atoi(fields[2])
+		entry.Range, _ = strconv.Atoi(fields[4])
+		entry.Count, _ = strconv.Atoi(fields[5])
+		if len(fields) > 6 {
+			entry.RefreshMinutes, _ = strconv.Atoi(fields[6])
+		}
+		if entry.RefreshMinutes <= 0 {
+			entry.RefreshMinutes = 5 // 默认5分钟
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
+}
+
+// FindMonGenForMonster 从MonGen条目中查找指定怪物的配置
+func FindMonGenForMonster(monGenEntries []*MonGenEntry, monsterName string) (refreshSec float64, count int) {
+	for _, entry := range monGenEntries {
+		if strings.EqualFold(entry.MonsterName, monsterName) {
+			return float64(entry.RefreshMinutes) * 60, entry.Count
+		}
+	}
+	return 60, 10 // 默认值
 }
