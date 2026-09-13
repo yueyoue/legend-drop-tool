@@ -277,11 +277,11 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	form := container.NewVBox(
 		widget.NewLabel("模拟参数配置"),
 		widget.NewSeparator(),
-		container.NewGridWithLabels(2,
-			widget.NewFormItem("模拟时长(小时)", a.simDurationEntry),
-			widget.NewFormItem("击杀比例(0~1)", a.simKillRatioEntry),
-			widget.NewFormItem("刷新间隔(秒)", a.simRefreshEntry),
-			widget.NewFormItem("每次刷新数量", a.simCountEntry),
+		container.NewGridWithColumns(2,
+			widget.NewLabel("模拟时长(小时):"), a.simDurationEntry,
+			widget.NewLabel("击杀比例(0~1):"), a.simKillRatioEntry,
+			widget.NewLabel("刷新间隔(秒):"), a.simRefreshEntry,
+			widget.NewLabel("每次刷新数量:"), a.simCountEntry,
 		),
 		widget.NewSeparator(),
 		container.NewHBox(simBtn, simAllBtn, exportBtn),
@@ -435,8 +435,7 @@ func (a *App) onLoadFiles() {
 	// 尝试标准路径
 	monItemsDir := filepath.Join(serverRoot, "Mir200", "Envir", "MonItems")
 
-	// 如果标准路径不存在，让用户选择
-	if _, err := dialog.ShowFileOpen; true {
+	{
 		// 检查标准路径
 		results, err := parser.ParseDirectory(monItemsDir, a.currentEngine)
 		if err != nil {
