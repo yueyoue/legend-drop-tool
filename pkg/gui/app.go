@@ -67,6 +67,14 @@ type App struct {
 	simMapTable     *widget.Table
 	simMonsterTable *widget.Table
 
+	// 模拟结果 - 搜索控件
+	simItemSearch    *widget.Entry
+	simMapSearch     *widget.Entry
+	simMonsterSearch *widget.Entry
+
+	// 搜索过滤后的数据
+	filteredItemStats  []*simulator.ItemStat
+
 	// 模拟结果数据
 	simMultiResult    *simulator.MultiSimResult
 	simResult         *simulator.SimResult // 当前显示的单次结果
@@ -130,8 +138,10 @@ func (a *App) buildUI() fyne.CanvasObject {
 	a.statusLabel = widget.NewLabel("就绪 - 请选择传奇服务端目录")
 	statusBar := container.NewHBox(a.statusLabel)
 
+	// 使用HSplit分割左右面板
 	split := container.NewHSplit(leftPanel, rightPanel)
 	split.SetOffset(0.25)
+
 	return container.NewBorder(toolbar, statusBar, nil, nil, split)
 }
 
@@ -190,7 +200,8 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 	}
 
 	header := widget.NewLabelWithStyle("怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	return container.NewBorder(header, nil, nil, nil, a.fileList)
+	scroll := container.NewVScroll(a.fileList)
+	return container.NewBorder(header, nil, nil, nil, scroll)
 }
 
 // buildDetailTabs 构建右侧详情标签页
@@ -348,12 +359,18 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	)
 
 	// === 掉落物品列表 (Table) ===
+	a.simItemSearch = widget.NewEntry()
+	a.simItemSearch.SetPlaceHolder("搜索物品名称...")
+	a.simItemSearch.OnChanged = func(query string) {
+		a.filterItemTable(query)
+	}
+
 	a.simItemTable = widget.NewTable(
 		func() (int, int) {
 			if a.simResult == nil {
 				return 0, 2
 			}
-			return len(a.simResult.ItemStats) + 1, 2 // +1 for header
+			return len(a.filteredItemStats) + 1, 2
 		},
 		func() fyne.CanvasObject {
 			label := widget.NewLabel("")
@@ -363,7 +380,6 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
 			label := obj.(*widget.Label)
 			if id.Row == 0 {
-				// 表头
 				label.TextStyle = fyne.TextStyle{Bold: true}
 				label.Alignment = fyne.TextAlignCenter
 				if id.Col == 0 {
@@ -374,11 +390,11 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 				return
 			}
 			label.TextStyle = fyne.TextStyle{}
-			if a.simResult == nil || id.Row-1 >= len(a.simResult.ItemStats) {
+			if id.Row-1 >= len(a.filteredItemStats) {
 				label.SetText("")
 				return
 			}
-			item := a.simResult.ItemStats[id.Row-1]
+			item := a.filteredItemStats[id.Row-1]
 			if id.Col == 0 {
 				label.Alignment = fyne.TextAlignLeading
 				label.SetText(item.ItemName)
@@ -391,8 +407,15 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	a.simItemTable.SetColumnWidth(0, 200)
 	a.simItemTable.SetColumnWidth(1, 120)
 	a.simItemTable.OnSelected = func(id widget.TableCellID) {
-		if id.Row > 0 {
-			a.onItemSelected(id.Row - 1)
+		if id.Row > 0 && id.Row-1 < len(a.filteredItemStats) {
+			// 找到原始数据中的索引
+			selectedItem := a.filteredItemStats[id.Row-1]
+			for i, item := range a.simResult.ItemStats {
+				if item == selectedItem {
+					a.onItemSelected(i)
+					break
+				}
+			}
 		}
 	}
 
@@ -497,17 +520,28 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	exportBtn := widget.NewButton("导出结果", a.onExportSimResult)
 	summaryBar := container.NewBorder(nil, nil, nil, exportBtn, a.simResultLabel)
 
-	// 三列结果
+	// 三列结果（带搜索）
+	a.simMapSearch = widget.NewEntry()
+	a.simMapSearch.SetPlaceHolder("搜索地图...")
+	a.simMapSearch.OnChanged = func(q string) {
+		a.filterDisplayDataBySearch()
+	}
+	a.simMonsterSearch = widget.NewEntry()
+	a.simMonsterSearch.SetPlaceHolder("搜索怪物...")
+	a.simMonsterSearch.OnChanged = func(q string) {
+		a.filterDisplayDataBySearch()
+	}
+
 	resultGrid := container.NewGridWithColumns(3,
 		container.NewBorder(
 			widget.NewLabelWithStyle("掉落物品列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-			nil, nil, nil, a.simItemTable),
+			a.simItemSearch, nil, nil, a.simItemTable),
 		container.NewBorder(
 			widget.NewLabelWithStyle("掉落地图列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-			nil, nil, nil, a.simMapTable),
+			a.simMapSearch, nil, nil, a.simMapTable),
 		container.NewBorder(
 			widget.NewLabelWithStyle("掉落怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-			nil, nil, nil, a.simMonsterTable),
+			a.simMonsterSearch, nil, nil, a.simMonsterTable),
 	)
 
 	// 稀有物品追踪面板
@@ -547,7 +581,12 @@ func formatNumber(n int64) string {
 // resolveMapName 将地图编号解析为地图名称
 func (a *App) resolveMapName(mapID string) string {
 	if a.mapInfoLookup != nil {
-		if name, ok := a.mapInfoLookup[mapID]; ok {
+		// 精确匹配
+		if name, ok := a.mapInfoLookup[mapID]; ok && name != "" {
+			return name
+		}
+		// 小写匹配（MonGen.txt中可能用小写）
+		if name, ok := a.mapInfoLookup[strings.ToLower(mapID)]; ok && name != "" {
 			return name
 		}
 	}
@@ -797,6 +836,82 @@ func (a *App) updateTrackerPanel(itemName string) {
 	}
 
 	a.simTrackerLabel.SetText(sb.String())
+}
+
+// filterItemTable 根据搜索关键词过滤物品列表
+func (a *App) filterItemTable(query string) {
+	if a.simResult == nil {
+		return
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		a.filteredItemStats = a.simResult.ItemStats
+	} else {
+		a.filteredItemStats = nil
+		for _, item := range a.simResult.ItemStats {
+			if strings.Contains(strings.ToLower(item.ItemName), query) {
+				a.filteredItemStats = append(a.filteredItemStats, item)
+			}
+		}
+	}
+	a.simItemTable.Refresh()
+}
+
+// filterDisplayDataBySearch 根据搜索关键词过滤地图和怪物显示数据
+func (a *App) filterDisplayDataBySearch() {
+	if a.simResult == nil {
+		return
+	}
+
+	// 获取当前完整数据源（不受搜索影响的原始数据）
+	var mapSource []*simulator.MapStat
+	if a.filteredMapStats != nil {
+		mapSource = a.filteredMapStats
+	} else {
+		mapSource = a.simResult.MapStats
+	}
+	var monSource []*simulator.MonsterStat
+	if a.filteredMonStats != nil {
+		monSource = a.filteredMonStats
+	} else {
+		monSource = a.simResult.MonsterStats
+	}
+
+	// 过滤地图
+	mapQuery := ""
+	if a.simMapSearch != nil {
+		mapQuery = strings.ToLower(strings.TrimSpace(a.simMapSearch.Text))
+	}
+	var filteredMaps []*simulator.MapStat
+	if mapQuery == "" {
+		filteredMaps = mapSource
+	} else {
+		for _, m := range mapSource {
+			if strings.Contains(strings.ToLower(a.formatMapDisplay(m.MapName)), mapQuery) {
+				filteredMaps = append(filteredMaps, m)
+			}
+		}
+	}
+
+	// 过滤怪物
+	monQuery := ""
+	if a.simMonsterSearch != nil {
+		monQuery = strings.ToLower(strings.TrimSpace(a.simMonsterSearch.Text))
+	}
+	var filteredMons []*simulator.MonsterStat
+	if monQuery == "" {
+		filteredMons = monSource
+	} else {
+		for _, ms := range monSource {
+			if strings.Contains(strings.ToLower(ms.MonsterName), monQuery) {
+				filteredMons = append(filteredMons, ms)
+			}
+		}
+	}
+
+	a.refreshDisplayData(filteredMaps, filteredMons)
+	a.simMapTable.Refresh()
+	a.simMonsterTable.Refresh()
 }
 
 // buildAuthTab 构建授权管理页
@@ -1101,6 +1216,7 @@ func (a *App) onRunSimNew() {
 		// 使用第一次模拟的结果作为默认显示
 		if len(multiResult.Runs) > 0 {
 			a.simResult = multiResult.Runs[0]
+			a.filteredItemStats = a.simResult.ItemStats
 		}
 
 		a.refreshDisplayData(a.simResult.MapStats, a.simResult.MonsterStats)

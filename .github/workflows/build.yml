@@ -21,6 +21,10 @@ jobs:
         uses: bwoodsend/setup-winlibs-action@v1
 
       - name: Install dependencies
+        env:
+          GONOSUMCHECK: "*"
+          GONOSUMDB: "*"
+          GOFLAGS: "-mod=mod"
         run: go mod tidy
 
       - name: Build Windows amd64

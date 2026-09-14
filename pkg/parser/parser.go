@@ -485,7 +485,10 @@ func ParseMapInfo(filePath string) (map[string]string, error) {
 		}
 
 		if mapID != "" && mapName != "" {
+			// 存储原始ID
 			result[mapID] = mapName
+			// 同时存储小写版本（MonGen.txt中可能用小写）
+			result[strings.ToLower(mapID)] = mapName
 		}
 	}
 
