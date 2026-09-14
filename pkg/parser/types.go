@@ -31,6 +31,28 @@ func (e EngineType) String() string {
 	}
 }
 
+// DropGroup 掉落组（对应#CHILD结构）
+type DropGroup struct {
+	ProbabilityNumerator   int         // 组概率分子（#CHILD 1/2 中的1）
+	ProbabilityDenominator int         // 组概率分母（#CHILD 1/2 中的2）
+	IsRandom               bool        // RANDOM标志：组内只随机选一个
+	Items                  []GroupItem // 组内条目（物品或嵌套子组）
+}
+
+// GroupItem 组内条目（可以是物品或嵌套子组）
+type GroupItem struct {
+	Entry    *DropEntry // 原始掉落条目（非nil=普通物品）
+	SubGroup *DropGroup // 嵌套子组（非nil=嵌套#CHILD）
+}
+
+// Probability 返回组进入概率
+func (g *DropGroup) Probability() float64 {
+	if g.ProbabilityDenominator == 0 {
+		return 1
+	}
+	return float64(g.ProbabilityNumerator) / float64(g.ProbabilityDenominator)
+}
+
 // DropEntry 单条掉落配置
 type DropEntry struct {
 	LineNumber             int

@@ -491,3 +491,100 @@ func ParseMapInfo(filePath string) (map[string]string, error) {
 
 	return result, nil
 }
+
+// BuildDropGroups 从扁平条目列表构建层级掉落组树
+// 将#CHILD/#IF/#CASE结构转换为DropGroup树，用于模拟器正确处理
+func BuildDropGroups(entries []*DropEntry) []GroupItem {
+	var result []GroupItem
+	i := 0
+
+	for i < len(entries) {
+		e := entries[i]
+
+		// 跳过注释、空行、CHILD结束括号
+		if e.IsComment || e.IsChildEnd {
+			i++
+			continue
+		}
+
+		// #CALL引用
+		if e.IsCallRef {
+			result = append(result, GroupItem{Entry: e})
+			i++
+			continue
+		}
+
+		// #CHILD开始
+		if e.IsChildStart {
+			group := &DropGroup{
+				IsRandom: e.ChildRandom,
+			}
+			// 解析组概率
+			if parts := strings.SplitN(e.ChildProbability, "/", 2); len(parts) == 2 {
+				group.ProbabilityNumerator, _ = strconv.Atoi(parts[0])
+				group.ProbabilityDenominator, _ = strconv.Atoi(parts[1])
+			}
+			// 收集组内条目（找匹配的结束括号）
+			depth := 1
+			i++
+			var childEntries []*DropEntry
+			for i < len(entries) && depth > 0 {
+				ce := entries[i]
+				if ce.IsChildStart || ce.IsCaseStart || ce.IsIfStart {
+					depth++
+				}
+				if ce.IsChildEnd {
+					depth--
+					if depth == 0 {
+						break
+					}
+				}
+				childEntries = append(childEntries, ce)
+				i++
+			}
+			// 递归构建子组
+			group.Items = BuildDropGroups(childEntries)
+			result = append(result, GroupItem{SubGroup: group})
+			i++ // 跳过结束括号
+			continue
+		}
+
+		// #CASE/#IF开始（当作RANDOM组处理）
+		if e.IsCaseStart || e.IsIfStart {
+			group := &DropGroup{
+				ProbabilityNumerator:   1,
+				ProbabilityDenominator: 1,
+				IsRandom:               e.ChildRandom,
+			}
+			depth := 1
+			i++
+			var childEntries []*DropEntry
+			for i < len(entries) && depth > 0 {
+				ce := entries[i]
+				if ce.IsChildStart || ce.IsCaseStart || ce.IsIfStart {
+					depth++
+				}
+				if ce.IsChildEnd {
+					depth--
+					if depth == 0 {
+						break
+					}
+				}
+				childEntries = append(childEntries, ce)
+				i++
+			}
+			group.Items = BuildDropGroups(childEntries)
+			result = append(result, GroupItem{SubGroup: group})
+			i++
+			continue
+		}
+
+		// 普通掉落条目
+		if e.IsEditable() {
+			result = append(result, GroupItem{Entry: e})
+		}
+		i++
+	}
+
+	return result
+}

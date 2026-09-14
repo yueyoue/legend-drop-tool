@@ -53,6 +53,9 @@ type App struct {
 	simMapRadio       *widget.RadioGroup
 	simDurationEntry  *widget.Entry
 	simKillRatioEntry *widget.Entry
+	simPityCheck      *widget.Check
+	simPityEntry      *widget.Entry
+	simRunCountEntry  *widget.Entry
 	simMonsterCount   *widget.Label
 	simItemCount      *widget.Label
 	simMapCount       *widget.Label
@@ -64,7 +67,8 @@ type App struct {
 	simMonsterTable *widget.Table
 
 	// 模拟结果数据
-	simResult         *simulator.SimResult
+	simMultiResult    *simulator.MultiSimResult
+	simResult         *simulator.SimResult // 当前显示的单次结果
 	filteredMapStats  []*simulator.MapStat
 	filteredMonStats  []*simulator.MonsterStat
 
@@ -318,6 +322,11 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	a.simDurationEntry.SetText("24")
 	a.simKillRatioEntry = widget.NewEntry()
 	a.simKillRatioEntry.SetText("50")
+	a.simPityCheck = widget.NewCheck("启用保底", nil)
+	a.simPityEntry = widget.NewEntry()
+	a.simPityEntry.SetText("100")
+	a.simRunCountEntry = widget.NewEntry()
+	a.simRunCountEntry.SetText("1")
 
 	otherSection := container.NewVBox(
 		widget.NewLabelWithStyle("其它选项", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -325,6 +334,8 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 			widget.NewLabel("模拟运行时间(小时):"), a.simDurationEntry,
 			widget.NewLabel("消灭怪物比例(%):"), a.simKillRatioEntry,
 		),
+		container.NewHBox(a.simPityCheck, widget.NewLabel("连续空击杀次数:"), a.simPityEntry),
+		container.NewHBox(widget.NewLabel("模拟轮数(>1显示统计):"), a.simRunCountEntry),
 	)
 
 	simBtn := widget.NewButton("模拟", a.onRunSimNew)
@@ -966,12 +977,24 @@ func (a *App) onRunSimNew() {
 		return
 	}
 
+	pityThreshold, _ := strconv.Atoi(a.simPityEntry.Text)
+	if pityThreshold <= 0 {
+		pityThreshold = 100
+	}
+	runCount, _ := strconv.Atoi(a.simRunCountEntry.Text)
+	if runCount <= 0 {
+		runCount = 1
+	}
+
 	cfg := simulator.SimConfig{
 		DurationHours:   duration,
 		KillRatio:       killRatio,
 		RefreshInterval: 60,
 		RefreshCount:    10,
 		MapRateModifier: 1.0,
+		PityEnabled:     a.simPityCheck.Checked,
+		PityThreshold:   pityThreshold,
+		RunCount:        runCount,
 	}
 
 	if a.simMonsterRadio.Selected == "指定怪物" && len(a.selectedMonsters) > 0 {
@@ -999,16 +1022,28 @@ func (a *App) onRunSimNew() {
 			files = append(files, r.File)
 		}
 
-		result := a.simulator.SimulateAll(files, a.monGenEntries, cfg)
-		a.simResult = result
+		multiResult := a.simulator.SimulateAll(files, a.monGenEntries, cfg)
+		a.simMultiResult = multiResult
+		// 使用第一次模拟的结果作为默认显示
+		if len(multiResult.Runs) > 0 {
+			a.simResult = multiResult.Runs[0]
+		}
 
 		a.refreshDisplayData(a.simResult.MapStats, a.simResult.MonsterStats)
 		a.simItemTable.Refresh()
 		a.simMapTable.Refresh()
 		a.simMonsterTable.Refresh()
 
-		summary := fmt.Sprintf("总击杀:%d 总掉落:%d 空爆率:%.1f%% 耗时:%v",
-			result.TotalKills, result.TotalDrops, result.EmptyRate()*100, result.Duration)
+		var summary string
+		if runCount > 1 {
+			summary = fmt.Sprintf("模拟%d轮 平均掉落:%.0f (最小:%d 最大:%d) 空爆率:%.1f%% 耗时:%v",
+				runCount, multiResult.AvgTotalDrops, multiResult.MinTotalDrops,
+				multiResult.MaxTotalDrops, multiResult.AvgEmptyRate*100, multiResult.Duration)
+		} else {
+			summary = fmt.Sprintf("总击杀:%d 总掉落:%d 空爆率:%.1f%% 耗时:%v",
+				a.simResult.TotalKills, a.simResult.TotalDrops,
+				a.simResult.EmptyRate()*100, a.simResult.Duration)
+		}
 		a.simResultLabel.SetText(summary)
 		a.statusLabel.SetText("模拟完成 - " + summary)
 	}()
@@ -1364,7 +1399,12 @@ func (a *App) onExportSimResult() {
 		dialog.ShowInformation("提示", "请先运行模拟", a.mainWindow)
 		return
 	}
-	text := simulator.FormatResult(a.simResult)
+	var text string
+	if a.simMultiResult != nil && a.simMultiResult.RunCount > 1 {
+		text = simulator.FormatMultiResult(a.simMultiResult)
+	} else {
+		text = simulator.FormatResult(a.simResult)
+	}
 	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil || writer == nil {
 			return
