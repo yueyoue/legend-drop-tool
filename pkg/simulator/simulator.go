@@ -72,6 +72,17 @@ type MonsterStat struct {
 	DropCount   int64
 }
 
+// ItemDropTracker 物品掉落追踪器
+type ItemDropTracker struct {
+	ItemName       string
+	TotalDrops     int64   // 总掉落次数
+	LastDropKill   int64   // 最后一次掉落时的击杀序号
+	FirstDropKill  int64   // 第一次掉落时的击杀序号
+	MaxDrought     int64   // 最长连续未掉落击杀数
+	Intervals      []int64 // 每次掉落间隔（击杀数）
+	currentDrought int64   // 当前连续未掉落计数
+}
+
 // SimResult 单次模拟结果
 type SimResult struct {
 	Config       SimConfig
@@ -86,6 +97,7 @@ type SimResult struct {
 
 	ItemMonsterDrops map[string]map[string]int64
 	ItemMapDrops     map[string]map[string]int64
+	ItemTrackers     map[string]*ItemDropTracker // 物品掉落追踪
 }
 
 // DropRate 返回总掉落率
@@ -152,6 +164,13 @@ type monsterMapInfo struct {
 	count       int
 }
 
+// monsterMapKills 怪物在地图上的击杀数
+type monsterMapKills struct {
+	monsterName string
+	mapName     string
+	kills       int64
+}
+
 // ==================== 多次模拟入口 ====================
 
 // SimulateAll 模拟所有怪物，支持多次运行
@@ -205,11 +224,6 @@ func (s *Simulator) SimulateAll(
 	}
 
 	// 预计算每个怪物在每个地图的击杀数
-	type monsterMapKills struct {
-		monsterName string
-		mapName     string
-		kills       int64
-	}
 	var allMonsterMapKills []monsterMapKills
 
 	for _, file := range files {
@@ -277,7 +291,7 @@ func (s *Simulator) SimulateAll(
 	multi.Runs = make([]*SimResult, config.RunCount)
 
 	for run := 0; run < config.RunCount; run++ {
-		multi.Runs[run] = s.runSingleSimulation(
+		multi.Runs[run] = s.runSingleSimulationWithTracker(
 			files, filteredGroupTrees, allMonsterMapKills, config, monsterFilterSet, pityItemSet,
 		)
 	}
@@ -781,4 +795,290 @@ func FormatMultiResult(multi *MultiSimResult) string {
 	}
 
 	return sb
+}
+
+// ==================== P1: 二项分布优化 ====================
+
+// simpleDropItem 简单独立掉落条目（不在RANDOM组内，可用于二项分布优化）
+type simpleDropItem struct {
+	itemName string
+	prob     float64
+	quantity int
+}
+
+// analyzeTreeForSimpleItems 分析掉落树，找出可独立掉落的简单条目
+// 返回：(简单条目列表, 是否包含RANDOM组)
+// 如果包含RANDOM组，无法完全优化，需要逐次模拟
+func analyzeTreeForSimpleItems(tree []parser.GroupItem, mapRateMod float64) ([]simpleDropItem, bool) {
+	var simpleItems []simpleDropItem
+	hasRandom := false
+
+	for _, item := range tree {
+		if item.Entry != nil {
+			e := item.Entry
+			denominator := float64(e.ProbabilityDenominator) / mapRateMod
+			if denominator < 1 {
+				denominator = 1
+			}
+			prob := float64(e.ProbabilityNumerator) / denominator
+			simpleItems = append(simpleItems, simpleDropItem{
+				itemName: e.ItemName, prob: prob, quantity: e.Quantity,
+			})
+		} else if item.SubGroup != nil {
+			g := item.SubGroup
+			if g.IsRandom {
+				hasRandom = true
+			} else {
+				// 非RANDOM组：递归展开
+				subSimple, subRandom := analyzeTreeForSimpleItems(g.Items, mapRateMod)
+				if subRandom {
+					hasRandom = true
+				}
+				// 将子条目的概率乘以组概率
+				groupProb := g.Probability()
+				for _, si := range subSimple {
+					si.prob *= groupProb
+					simpleItems = append(simpleItems, si)
+				}
+			}
+		}
+	}
+	return simpleItems, hasRandom
+}
+
+// binomialSample 从二项分布 B(n, p) 中采样
+// 对于大n使用正态近似，小n使用逐次采样
+func (s *Simulator) binomialSample(n int64, p float64) int64 {
+	if n <= 0 || p <= 0 {
+		return 0
+	}
+	if p >= 1 {
+		return n
+	}
+
+	// 小数量用精确采样
+	if n < 100 {
+		var count int64
+		for i := int64(0); i < n; i++ {
+			if s.rng.Float64() < p {
+				count++
+			}
+		}
+		return count
+	}
+
+	// 大数量用正态近似: N(np, np(1-p))
+	mean := float64(n) * p
+	variance := mean * (1 - p)
+	if variance < 1 {
+		variance = 1
+	}
+	stddev := math.Sqrt(variance)
+
+	// Box-Muller变换生成正态随机数
+	u1 := s.rng.Float64()
+	u2 := s.rng.Float64()
+	if u1 < 1e-10 {
+		u1 = 1e-10
+	}
+	z := math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
+	result := int64(math.Round(mean + z*stddev))
+
+	if result < 0 {
+		return 0
+	}
+	if result > n {
+		return n
+	}
+	return result
+}
+
+// ==================== 带追踪的模拟 ====================
+
+// runSingleSimulationWithTracker 执行带物品追踪和二项分布优化的模拟
+func (s *Simulator) runSingleSimulationWithTracker(
+	files []*parser.MonsterDropFile,
+	groupTrees map[string][]parser.GroupItem,
+	allMonsterMapKills []monsterMapKills,
+	config SimConfig,
+	monsterFilterSet map[string]bool,
+	pityItemSet map[string]bool,
+) *SimResult {
+	itemAgg := make(map[string]*ItemStat)
+	mapAgg := make(map[string]*MapStat)
+	monsterAgg := make(map[string]*MonsterStat)
+	itemMonsterDrops := make(map[string]map[string]int64)
+	itemMapDrops := make(map[string]map[string]int64)
+	trackers := make(map[string]*ItemDropTracker)
+
+	// 全局击杀序号（用于追踪）
+	var globalKillIdx int64
+
+	var pityCounter int
+
+	for _, mmk := range allMonsterMapKills {
+		monsterName := mmk.monsterName
+		mapName := mmk.mapName
+		kills := mmk.kills
+
+		if monsterAgg[monsterName] == nil {
+			monsterAgg[monsterName] = &MonsterStat{MonsterName: monsterName}
+		}
+		monsterAgg[monsterName].KillCount += kills
+
+		if mapAgg[mapName] == nil {
+			mapAgg[mapName] = &MapStat{MapName: mapName}
+		}
+		mapAgg[mapName].MonsterCnt += kills
+
+		tree, hasTree := groupTrees[monsterName]
+		if !hasTree || len(tree) == 0 {
+			globalKillIdx += kills
+			continue
+		}
+
+		// 尝试二项分布优化
+		simpleItems, hasRandom := analyzeTreeForSimpleItems(tree, config.MapRateModifier)
+
+		if !hasRandom && len(simpleItems) > 0 && !config.PityEnabled {
+			// 纯独立掉落 + 无保底 → 使用二项分布批量模拟
+			for _, si := range simpleItems {
+				dropCount := s.binomialSample(kills, si.prob)
+				if dropCount > 0 {
+					for d := int64(0); d < dropCount; d++ {
+						s.recordDropWithTracker(si.itemName, si.quantity, si.prob,
+							globalKillIdx+int64(float64(d)*float64(kills)/float64(dropCount)),
+							itemAgg, mapAgg, monsterAgg,
+							itemMonsterDrops, itemMapDrops, trackers,
+							monsterName, mapName)
+					}
+				}
+			}
+			globalKillIdx += kills
+		} else {
+			// 有RANDOM组或保底 → 逐次模拟
+			for i := int64(0); i < kills; i++ {
+				dropped := s.simulateKillWithTracker(tree, globalKillIdx,
+					itemAgg, mapAgg, monsterAgg,
+					itemMonsterDrops, itemMapDrops, trackers,
+					monsterName, mapName, config)
+
+				if dropped {
+					pityCounter = 0
+				} else {
+					pityCounter++
+					if config.PityEnabled && pityCounter >= config.PityThreshold {
+						if s.pityDrop(tree, pityItemSet, itemAgg, mapAgg, monsterAgg,
+							itemMonsterDrops, itemMapDrops, monsterName, mapName) {
+							pityCounter = 0
+						}
+					}
+				}
+				globalKillIdx++
+			}
+		}
+	}
+
+	// 汇总
+	result := &SimResult{Config: config, ItemTrackers: trackers}
+	for _, v := range itemAgg {
+		result.ItemStats = append(result.ItemStats, v)
+		result.TotalDrops += v.DropCount
+	}
+	sort.Slice(result.ItemStats, func(i, j int) bool {
+		return result.ItemStats[i].DropCount > result.ItemStats[j].DropCount
+	})
+	for _, v := range mapAgg {
+		result.MapStats = append(result.MapStats, v)
+	}
+	sort.Slice(result.MapStats, func(i, j int) bool {
+		return result.MapStats[i].DropCount > result.MapStats[j].DropCount
+	})
+	for _, v := range monsterAgg {
+		result.MonsterStats = append(result.MonsterStats, v)
+		result.TotalKills += v.KillCount
+	}
+	sort.Slice(result.MonsterStats, func(i, j int) bool {
+		return result.MonsterStats[i].DropCount > result.MonsterStats[j].DropCount
+	})
+	result.TotalEmpty = result.TotalKills - s.countNonEmptyKills(result)
+	result.ItemMonsterDrops = itemMonsterDrops
+	result.ItemMapDrops = itemMapDrops
+
+	// 完成追踪统计
+	for _, t := range trackers {
+		if t.TotalDrops > 0 && t.LastDropKill > 0 {
+			// 最后一次掉落到结束的距离
+			trailingDrought := globalKillIdx - t.LastDropKill
+			if trailingDrought > t.MaxDrought {
+				t.MaxDrought = trailingDrought
+			}
+		}
+	}
+
+	return result
+}
+
+// simulateKillWithTracker 带追踪的单次击杀模拟
+func (s *Simulator) simulateKillWithTracker(
+	tree []parser.GroupItem,
+	killIdx int64,
+	itemAgg map[string]*ItemStat,
+	mapAgg map[string]*MapStat,
+	monsterAgg map[string]*MonsterStat,
+	itemMonsterDrops map[string]map[string]int64,
+	itemMapDrops map[string]map[string]int64,
+	trackers map[string]*ItemDropTracker,
+	monsterName, mapName string,
+	config SimConfig,
+) bool {
+	dropped := false
+	droppedItems := s.rollGroups(tree, config.MapRateModifier)
+	for _, di := range droppedItems {
+		dropped = true
+		s.recordDropWithTracker(di.itemName, di.quantity, di.prob, killIdx,
+			itemAgg, mapAgg, monsterAgg,
+			itemMonsterDrops, itemMapDrops, trackers,
+			monsterName, mapName)
+	}
+	return dropped
+}
+
+// recordDropWithTracker 带追踪的掉落记录
+func (s *Simulator) recordDropWithTracker(
+	itemName string, quantity int, prob float64, killIdx int64,
+	itemAgg map[string]*ItemStat,
+	mapAgg map[string]*MapStat,
+	monsterAgg map[string]*MonsterStat,
+	itemMonsterDrops map[string]map[string]int64,
+	itemMapDrops map[string]map[string]int64,
+	trackers map[string]*ItemDropTracker,
+	monsterName, mapName string,
+) {
+	// 基础统计
+	s.recordDrop(itemName, quantity, prob, itemAgg, mapAgg, monsterAgg,
+		itemMonsterDrops, itemMapDrops, monsterName, mapName)
+
+	// 追踪器
+	t, exists := trackers[itemName]
+	if !exists {
+		t = &ItemDropTracker{ItemName: itemName, FirstDropKill: killIdx}
+		trackers[itemName] = t
+	}
+	t.TotalDrops++
+	if t.LastDropKill > 0 {
+		interval := killIdx - t.LastDropKill
+		t.Intervals = append(t.Intervals, interval)
+		if interval > t.MaxDrought {
+			t.MaxDrought = interval
+		}
+	} else if t.FirstDropKill > 0 {
+		// 第一次掉落，记录到首杀的距离
+		firstInterval := killIdx - t.FirstDropKill
+		if firstInterval > t.MaxDrought {
+			t.MaxDrought = firstInterval
+		}
+	}
+	t.LastDropKill = killIdx
+	t.currentDrought = 0
 }

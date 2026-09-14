@@ -60,6 +60,7 @@ type App struct {
 	simItemCount      *widget.Label
 	simMapCount       *widget.Label
 	simResultLabel    *widget.Label
+	simTrackerLabel   *widget.Label // 稀有物品追踪
 
 	// 模拟结果 - Table控件
 	simItemTable    *widget.Table
@@ -509,10 +510,21 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 			nil, nil, nil, a.simMonsterTable),
 	)
 
+	// 稀有物品追踪面板
+	a.simTrackerLabel = widget.NewLabel("")
+	a.simTrackerLabel.Wrapping = fyne.TextWrapWord
+	trackerScroll := container.NewVScroll(a.simTrackerLabel)
+	trackerScroll.SetMinSize(fyne.NewSize(0, 120))
+	trackerPanel := container.NewBorder(
+		widget.NewLabelWithStyle("稀有物品追踪（点击物品列表中的物品查看）", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		nil, nil, nil, trackerScroll,
+	)
+
 	return container.NewBorder(
 		container.NewVBox(optionArea, widget.NewSeparator()),
 		container.NewVBox(widget.NewSeparator(), summaryBar),
-		nil, nil, resultGrid,
+		nil, nil,
+		container.NewVSplit(resultGrid, trackerPanel),
 	)
 }
 
@@ -640,6 +652,9 @@ func (a *App) onItemSelected(row int) {
 	a.simMapTable.Refresh()
 	a.simMonsterTable.Refresh()
 	a.statusLabel.SetText(fmt.Sprintf("已选中物品: %s | 地图:%d个 怪物:%d个", selectedItem, a.mapDisplayCount, a.monDisplayCount))
+
+	// 更新稀有物品追踪面板
+	a.updateTrackerPanel(selectedItem)
 }
 
 // onMapSelected 点击地图列表联动：筛选怪物
@@ -723,6 +738,65 @@ func (a *App) onMapSelected(row int) {
 	}
 	a.simMonsterTable.Refresh()
 	a.statusLabel.SetText(fmt.Sprintf("已选中地图: %s | 怪物:%d个", selectedMapDisplay, a.monDisplayCount))
+}
+
+// updateTrackerPanel 更新稀有物品追踪面板
+func (a *App) updateTrackerPanel(itemName string) {
+	if a.simResult == nil || a.simResult.ItemTrackers == nil || a.simTrackerLabel == nil {
+		a.simTrackerLabel.SetText("暂无追踪数据")
+		return
+	}
+
+	t, exists := a.simResult.ItemTrackers[itemName]
+	if !exists {
+		a.simTrackerLabel.SetText(fmt.Sprintf("物品 [%s] 在本次模拟中未掉落，无追踪数据", itemName))
+		return
+	}
+
+	// 计算统计信息
+	totalKills := a.simResult.TotalKills
+	if totalKills == 0 {
+		totalKills = 1
+	}
+
+	// 期望间隔 = 总击杀 / 掉落次数
+	expectedInterval := float64(totalKills) / float64(t.TotalDrops)
+
+	// 平均实际间隔
+	avgInterval := 0.0
+	if len(t.Intervals) > 0 {
+		var sum int64
+		for _, v := range t.Intervals {
+			sum += v
+		}
+		avgInterval = float64(sum) / float64(len(t.Intervals))
+	}
+
+	// 预计出货时间（小时）
+	durationHours := a.simResult.Config.DurationHours
+	if durationHours == 0 {
+		durationHours = 1
+	}
+	killsPerHour := float64(totalKills) / durationHours
+	expectedHours := expectedInterval / killsPerHour
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("物品: %s\n", itemName))
+	sb.WriteString(fmt.Sprintf("掉落次数: %d\n", t.TotalDrops))
+	sb.WriteString(fmt.Sprintf("期望间隔: %.0f 次击杀\n", expectedInterval))
+	if len(t.Intervals) > 0 {
+		sb.WriteString(fmt.Sprintf("实际平均间隔: %.0f 次击杀\n", avgInterval))
+	}
+	sb.WriteString(fmt.Sprintf("最长干旱期: %d 次击杀\n", t.MaxDrought))
+	sb.WriteString(fmt.Sprintf("预计出货时间: %.1f 小时\n", expectedHours))
+	if t.FirstDropKill > 0 {
+		sb.WriteString(fmt.Sprintf("首次掉落: 第 %d 次击杀\n", t.FirstDropKill))
+	}
+	if t.LastDropKill > 0 {
+		sb.WriteString(fmt.Sprintf("最后掉落: 第 %d 次击杀\n", t.LastDropKill))
+	}
+
+	a.simTrackerLabel.SetText(sb.String())
 }
 
 // buildAuthTab 构建授权管理页
