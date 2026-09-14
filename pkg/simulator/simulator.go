@@ -66,6 +66,12 @@ type SimResult struct {
 	TotalDrops   int64
 	TotalEmpty   int64
 	Duration     time.Duration
+
+	// 物品级别的怪物/地图掉落数跟踪
+	// ItemMonsterDrops[物品名][怪物名] = 该怪物掉落该物品的次数
+	ItemMonsterDrops map[string]map[string]int64
+	// ItemMapDrops[物品名][地图名] = 该地图掉落该物品的次数
+	ItemMapDrops map[string]map[string]int64
 }
 
 // DropRate 返回总掉落率
@@ -146,6 +152,10 @@ func (s *Simulator) SimulateAll(
 	mapAgg := make(map[string]*MapStat)
 	// 按怪物汇总
 	monsterAgg := make(map[string]*MonsterStat)
+	// 物品→怪物掉落数
+	itemMonsterDrops := make(map[string]map[string]int64)
+	// 物品→地图掉落数
+	itemMapDrops := make(map[string]map[string]int64)
 
 	for _, file := range files {
 		monsterName := file.MonsterName
@@ -247,27 +257,44 @@ func (s *Simulator) SimulateAll(
 		for i := int64(0); i < totalKills; i++ {
 			for _, dp := range validEntries {
 				if s.rng.Float64() < dp.prob {
+					itemName := dp.entry.ItemName
 					// 物品统计
-					if itemAgg[dp.entry.ItemName] == nil {
-						itemAgg[dp.entry.ItemName] = &ItemStat{
-							ItemName:    dp.entry.ItemName,
+					if itemAgg[itemName] == nil {
+						itemAgg[itemName] = &ItemStat{
+							ItemName:    itemName,
 							Probability: dp.entry.Probability(),
 							Maps:        make(map[string]bool),
 							Monsters:    make(map[string]bool),
 						}
 					}
-					itemAgg[dp.entry.ItemName].DropCount++
-					itemAgg[dp.entry.ItemName].TotalQty += int64(dp.entry.Quantity)
-					itemAgg[dp.entry.ItemName].Monsters[monsterName] = true
+					itemAgg[itemName].DropCount++
+					itemAgg[itemName].TotalQty += int64(dp.entry.Quantity)
+					itemAgg[itemName].Monsters[monsterName] = true
+
+					// 物品→怪物掉落数跟踪
+					if itemMonsterDrops[itemName] == nil {
+						itemMonsterDrops[itemName] = make(map[string]int64)
+					}
+					itemMonsterDrops[itemName][monsterName]++
+
 					if hasMapInfo {
 						for _, mi := range mapInfos {
 							if len(mapFilterSet) > 0 && !mapFilterSet[mi.mapName] {
 								continue
 							}
-							itemAgg[dp.entry.ItemName].Maps[mi.mapName] = true
+							itemAgg[itemName].Maps[mi.mapName] = true
+							// 物品→地图掉落数跟踪
+							if itemMapDrops[itemName] == nil {
+								itemMapDrops[itemName] = make(map[string]int64)
+							}
+							itemMapDrops[itemName][mi.mapName]++
 						}
 					} else {
-						itemAgg[dp.entry.ItemName].Maps["未知地图"] = true
+						itemAgg[itemName].Maps["未知地图"] = true
+						if itemMapDrops[itemName] == nil {
+							itemMapDrops[itemName] = make(map[string]int64)
+						}
+						itemMapDrops[itemName]["未知地图"]++
 					}
 
 					// 怪物掉落统计
@@ -321,6 +348,8 @@ func (s *Simulator) SimulateAll(
 		return result.MonsterStats[i].DropCount > result.MonsterStats[j].DropCount
 	})
 
+	result.ItemMonsterDrops = itemMonsterDrops
+	result.ItemMapDrops = itemMapDrops
 	result.Duration = time.Since(start)
 	return result
 }

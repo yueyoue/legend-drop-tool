@@ -82,6 +82,9 @@ type App struct {
 	selectedMonsters []string
 	selectedItems    []string
 	selectedMaps     []string
+
+	// 当前选中的物品名称（用于地图→怪物的级联筛选）
+	selectedItemName string
 }
 
 // New 创建并运行应用
@@ -123,7 +126,7 @@ func (a *App) buildUI() fyne.CanvasObject {
 	statusBar := container.NewHBox(a.statusLabel)
 
 	split := container.NewHSplit(leftPanel, rightPanel)
-	split.SetOffset(0.22)
+	split.SetOffset(0.25)
 	return container.NewBorder(toolbar, statusBar, nil, nil, split)
 }
 
@@ -181,10 +184,11 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 		a.updateDetailPanel()
 	}
 
-	header := widget.NewLabel("怪物列表")
-	header.TextStyle = fyne.TextStyle{Bold: true}
+	header := widget.NewLabelWithStyle("怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	scrollList := container.NewVScroll(a.fileList)
-	return container.NewBorder(header, nil, nil, nil, scrollList)
+	leftContent := container.NewBorder(header, nil, nil, nil, scrollList)
+	// 用Max容器包裹，设置最小宽度，确保HSplit分隔条可拖动
+	return container.NewMax(leftContent)
 }
 
 // buildDetailTabs 构建右侧详情标签页
@@ -414,7 +418,7 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 			m := a.mapDisplayData[idx]
 			if id.Col == 0 {
 				label.Alignment = fyne.TextAlignLeading
-				label.SetText(a.resolveMapName(m.MapName))
+				label.SetText(a.formatMapDisplay(m.MapName))
 			} else {
 				label.Alignment = fyne.TextAlignTrailing
 				label.SetText(formatNumber(m.DropCount))
@@ -530,128 +534,187 @@ func (a *App) resolveMapName(mapID string) string {
 	return mapID
 }
 
-// refreshMapDisplayData 刷新地图显示数据（固定容量，防止滚动重置）
-func (a *App) refreshMapDisplayData() {
-	var source []*simulator.MapStat
-	if a.filteredMapStats != nil {
-		source = a.filteredMapStats
-	} else if a.simResult != nil {
-		source = a.simResult.MapStats
+// formatMapDisplay 格式化地图显示名称（编号+名称）
+func (a *App) formatMapDisplay(mapID string) string {
+	name := a.resolveMapName(mapID)
+	if name != mapID {
+		return fmt.Sprintf("%s (%s)", mapID, name)
 	}
-	a.mapDisplayCount = len(source)
-	// 确保容量足够
+	return mapID
+}
+
+// refreshDisplayData 刷新地图和怪物的显示数据
+// 使用固定容量策略：数组只增不缩，通过count控制实际显示行数
+// 这样Table的Length回调返回值不会因筛选而变化，避免Fyne重置滚动位置
+func (a *App) refreshDisplayData(mapData []*simulator.MapStat, monData []*simulator.MonsterStat) {
+	// 地图数据
+	a.mapDisplayCount = len(mapData)
 	for len(a.mapDisplayData) < a.mapDisplayCount {
 		a.mapDisplayData = append(a.mapDisplayData, nil)
 	}
-	copy(a.mapDisplayData, source)
-	// 清除多余位置
+	copy(a.mapDisplayData, mapData)
 	for i := a.mapDisplayCount; i < len(a.mapDisplayData); i++ {
 		a.mapDisplayData[i] = nil
 	}
-}
 
-// refreshMonDisplayData 刷新怪物显示数据（固定容量，防止滚动重置）
-func (a *App) refreshMonDisplayData() {
-	var source []*simulator.MonsterStat
-	if a.filteredMonStats != nil {
-		source = a.filteredMonStats
-	} else if a.simResult != nil {
-		source = a.simResult.MonsterStats
-	}
-	a.monDisplayCount = len(source)
+	// 怪物数据
+	a.monDisplayCount = len(monData)
 	for len(a.monDisplayData) < a.monDisplayCount {
 		a.monDisplayData = append(a.monDisplayData, nil)
 	}
-	copy(a.monDisplayData, source)
+	copy(a.monDisplayData, monData)
 	for i := a.monDisplayCount; i < len(a.monDisplayData); i++ {
 		a.monDisplayData[i] = nil
 	}
 }
 
 // onItemSelected 点击物品列表联动：筛选地图和怪物
+// 使用模拟器的ItemMonsterDrops/ItemMapDrops获取物品级别的准确掉落数
 func (a *App) onItemSelected(row int) {
 	if a.simResult == nil || row >= len(a.simResult.ItemStats) {
 		return
 	}
 	selectedItem := a.simResult.ItemStats[row].ItemName
+	a.selectedItemName = selectedItem // 记录当前选中的物品
 
-	// 筛选掉落该物品的怪物
+	// 从模拟结果中获取该物品的怪物掉落数和地图掉落数
+	monsterDrops := a.simResult.ItemMonsterDrops[selectedItem]
+	mapDrops := a.simResult.ItemMapDrops[selectedItem]
+
+	// 构建掉落该物品的怪物列表（带物品级别的掉落数）
 	a.filteredMonStats = nil
-	if a.currentResults != nil {
-		monsterSet := make(map[string]bool)
-		for _, r := range a.currentResults {
-			for _, entry := range r.File.Entries {
-				if entry.IsEditable() && entry.ItemName == selectedItem {
-					monsterSet[r.File.MonsterName] = true
+	if monsterDrops != nil {
+		for monsterName, dropCnt := range monsterDrops {
+			// 从全局MonsterStats中找到击杀数
+			var killCnt int64
+			for _, ms := range a.simResult.MonsterStats {
+				if ms.MonsterName == monsterName {
+					killCnt = ms.KillCount
 					break
 				}
 			}
+			a.filteredMonStats = append(a.filteredMonStats, &simulator.MonsterStat{
+				MonsterName: monsterName,
+				KillCount:   killCnt,
+				DropCount:   dropCnt, // 物品级别的掉落数，不是总掉落数
+			})
 		}
-		for _, ms := range a.simResult.MonsterStats {
-			if monsterSet[ms.MonsterName] {
-				a.filteredMonStats = append(a.filteredMonStats, ms)
-			}
-		}
+		sort.Slice(a.filteredMonStats, func(i, j int) bool {
+			return a.filteredMonStats[i].DropCount > a.filteredMonStats[j].DropCount
+		})
 	}
 
-	// 筛选掉落该物品的地图（通过怪物→地图关联）
+	// 构建掉落该物品的地图列表（带物品级别的掉落数）
 	a.filteredMapStats = nil
-	mapSet := make(map[string]bool)
-	for _, ms := range a.filteredMonStats {
-		if a.monGenEntries != nil {
-			for _, mg := range a.monGenEntries {
-				if mg.MonsterName == ms.MonsterName {
-					mapSet[mg.MapName] = true
+	if mapDrops != nil {
+		for mapName, dropCnt := range mapDrops {
+			// 从全局MapStats中找到刷怪数
+			var monCnt int64
+			for _, m := range a.simResult.MapStats {
+				if m.MapName == mapName {
+					monCnt = m.MonsterCnt
+					break
 				}
 			}
+			a.filteredMapStats = append(a.filteredMapStats, &simulator.MapStat{
+				MapName:    mapName,
+				MonsterCnt: monCnt,
+				DropCount:  dropCnt, // 物品级别的掉落数
+			})
 		}
-	}
-	if a.simResult != nil {
-		for _, m := range a.simResult.MapStats {
-			if mapSet[m.MapName] || len(mapSet) == 0 {
-				a.filteredMapStats = append(a.filteredMapStats, m)
-			}
-		}
+		sort.Slice(a.filteredMapStats, func(i, j int) bool {
+			return a.filteredMapStats[i].DropCount > a.filteredMapStats[j].DropCount
+		})
 	}
 
-	// 刷新显示数据（固定容量，防止滚动位置重置）
-	a.refreshMapDisplayData()
-	a.refreshMonDisplayData()
+	// 刷新显示数据
+	a.refreshDisplayData(a.filteredMapStats, a.filteredMonStats)
 	a.simMapTable.Refresh()
 	a.simMonsterTable.Refresh()
 	a.statusLabel.SetText(fmt.Sprintf("已选中物品: %s | 地图:%d个 怪物:%d个", selectedItem, a.mapDisplayCount, a.monDisplayCount))
 }
 
 // onMapSelected 点击地图列表联动：筛选怪物
+// 当已选中物品时，使用物品级别的掉落数；否则使用全局数据
 func (a *App) onMapSelected(row int) {
 	if row >= a.mapDisplayCount || row >= len(a.mapDisplayData) || a.mapDisplayData[row] == nil {
 		return
 	}
 	selectedMapID := a.mapDisplayData[row].MapName
-	selectedMapName := a.resolveMapName(selectedMapID)
+	selectedMapDisplay := a.formatMapDisplay(selectedMapID)
+
+	// 使用当前选中的物品（从onItemSelected记录）
+	selectedItemName := a.selectedItemName
 
 	// 筛选该地图的怪物
 	a.filteredMonStats = nil
-	if a.monGenEntries != nil {
-		monsterSet := make(map[string]bool)
-		for _, mg := range a.monGenEntries {
-			if mg.MapName == selectedMapID {
-				monsterSet[mg.MonsterName] = true
+
+	if selectedItemName != "" && a.simResult.ItemMonsterDrops[selectedItemName] != nil {
+		// 物品筛选模式：使用物品级别的怪物掉落数
+		monsterDrops := a.simResult.ItemMonsterDrops[selectedItemName]
+		for monsterName, dropCnt := range monsterDrops {
+			// 检查该怪物是否在选中的地图上
+			isOnMap := false
+			if a.monGenEntries != nil {
+				for _, mg := range a.monGenEntries {
+					if mg.MonsterName == monsterName && mg.MapName == selectedMapID {
+						isOnMap = true
+						break
+					}
+				}
+			} else {
+				isOnMap = true
 			}
-		}
-		if a.simResult != nil {
+			if !isOnMap {
+				continue
+			}
+			var killCnt int64
 			for _, ms := range a.simResult.MonsterStats {
-				if monsterSet[ms.MonsterName] {
-					a.filteredMonStats = append(a.filteredMonStats, ms)
+				if ms.MonsterName == monsterName {
+					killCnt = ms.KillCount
+					break
+				}
+			}
+			a.filteredMonStats = append(a.filteredMonStats, &simulator.MonsterStat{
+				MonsterName: monsterName,
+				KillCount:   killCnt,
+				DropCount:   dropCnt,
+			})
+		}
+	} else {
+		// 全局模式
+		if a.monGenEntries != nil {
+			monsterSet := make(map[string]bool)
+			for _, mg := range a.monGenEntries {
+				if mg.MapName == selectedMapID {
+					monsterSet[mg.MonsterName] = true
+				}
+			}
+			if a.simResult != nil {
+				for _, ms := range a.simResult.MonsterStats {
+					if monsterSet[ms.MonsterName] {
+						a.filteredMonStats = append(a.filteredMonStats, ms)
+					}
 				}
 			}
 		}
 	}
 
-	// 刷新显示数据（固定容量，防止滚动位置重置）
-	a.refreshMonDisplayData()
+	sort.Slice(a.filteredMonStats, func(i, j int) bool {
+		return a.filteredMonStats[i].DropCount > a.filteredMonStats[j].DropCount
+	})
+
+	// 只刷新怪物显示数据，保持地图滚动位置不变
+	a.monDisplayCount = len(a.filteredMonStats)
+	for len(a.monDisplayData) < a.monDisplayCount {
+		a.monDisplayData = append(a.monDisplayData, nil)
+	}
+	copy(a.monDisplayData, a.filteredMonStats)
+	for i := a.monDisplayCount; i < len(a.monDisplayData); i++ {
+		a.monDisplayData[i] = nil
+	}
 	a.simMonsterTable.Refresh()
-	a.statusLabel.SetText(fmt.Sprintf("已选中地图: %s | 怪物:%d个", selectedMapName, a.monDisplayCount))
+	a.statusLabel.SetText(fmt.Sprintf("已选中地图: %s | 怪物:%d个", selectedMapDisplay, a.monDisplayCount))
 }
 
 // buildAuthTab 构建授权管理页
@@ -790,12 +853,7 @@ func (a *App) showMapPicker() {
 	}
 	var names []string
 	for mapID := range mapSet {
-		displayName := a.resolveMapName(mapID)
-		if displayName != mapID {
-			names = append(names, fmt.Sprintf("%s (%s)", mapID, displayName))
-		} else {
-			names = append(names, mapID)
-		}
+		names = append(names, a.formatMapDisplay(mapID))
 	}
 	sort.Strings(names)
 	a.showMultiPicker("选择地图", names, func(selected []string) {
@@ -932,6 +990,9 @@ func (a *App) onRunSimNew() {
 	// 清除筛选
 	a.filteredMapStats = nil
 	a.filteredMonStats = nil
+	a.selectedItemName = ""
+	a.mapDisplayCount = 0
+	a.monDisplayCount = 0
 
 	a.statusLabel.SetText("正在模拟...请稍候")
 
@@ -944,8 +1005,7 @@ func (a *App) onRunSimNew() {
 		result := a.simulator.SimulateAll(files, a.monGenEntries, cfg)
 		a.simResult = result
 
-		a.refreshMapDisplayData()
-		a.refreshMonDisplayData()
+		a.refreshDisplayData(a.simResult.MapStats, a.simResult.MonsterStats)
 		a.simItemTable.Refresh()
 		a.simMapTable.Refresh()
 		a.simMonsterTable.Refresh()
