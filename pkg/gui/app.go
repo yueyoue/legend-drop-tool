@@ -68,6 +68,12 @@ type App struct {
 	filteredMapStats  []*simulator.MapStat
 	filteredMonStats  []*simulator.MonsterStat
 
+	// 固定容量数组（防止Table因数据长度变化重置滚动位置）
+	mapDisplayData    []*simulator.MapStat
+	monDisplayData    []*simulator.MonsterStat
+	mapDisplayCount   int
+	monDisplayCount   int
+
 	selectedFileIdx int
 	monGenEntries   []*parser.MonGenEntry
 	mapInfoLookup   map[string]string
@@ -177,7 +183,8 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 
 	header := widget.NewLabel("怪物列表")
 	header.TextStyle = fyne.TextStyle{Bold: true}
-	return container.NewBorder(header, nil, nil, nil, a.fileList)
+	scrollList := container.NewVScroll(a.fileList)
+	return container.NewBorder(header, nil, nil, nil, scrollList)
 }
 
 // buildDetailTabs 构建右侧详情标签页
@@ -379,13 +386,7 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	// === 掉落地图列表 (Table) ===
 	a.simMapTable = widget.NewTable(
 		func() (int, int) {
-			if a.filteredMapStats == nil {
-				if a.simResult == nil {
-					return 0, 2
-				}
-				return len(a.simResult.MapStats) + 1, 2
-			}
-			return len(a.filteredMapStats) + 1, 2
+			return a.mapDisplayCount + 1, 2
 		},
 		func() fyne.CanvasObject {
 			label := widget.NewLabel("")
@@ -405,15 +406,15 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 				return
 			}
 			label.TextStyle = fyne.TextStyle{}
-			data := a.getMapData()
-			if id.Row-1 >= len(data) {
+			idx := id.Row - 1
+			if idx >= a.mapDisplayCount || idx >= len(a.mapDisplayData) || a.mapDisplayData[idx] == nil {
 				label.SetText("")
 				return
 			}
-			m := data[id.Row-1]
+			m := a.mapDisplayData[idx]
 			if id.Col == 0 {
 				label.Alignment = fyne.TextAlignLeading
-				label.SetText(m.MapName)
+				label.SetText(a.resolveMapName(m.MapName))
 			} else {
 				label.Alignment = fyne.TextAlignTrailing
 				label.SetText(formatNumber(m.DropCount))
@@ -431,13 +432,7 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	// === 掉落怪物列表 (Table) ===
 	a.simMonsterTable = widget.NewTable(
 		func() (int, int) {
-			if a.filteredMonStats == nil {
-				if a.simResult == nil {
-					return 0, 3
-				}
-				return len(a.simResult.MonsterStats) + 1, 3
-			}
-			return len(a.filteredMonStats) + 1, 3
+			return a.monDisplayCount + 1, 3
 		},
 		func() fyne.CanvasObject {
 			label := widget.NewLabel("")
@@ -460,12 +455,12 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 				return
 			}
 			label.TextStyle = fyne.TextStyle{}
-			data := a.getMonData()
-			if id.Row-1 >= len(data) {
+			idx := id.Row - 1
+			if idx >= a.monDisplayCount || idx >= len(a.monDisplayData) || a.monDisplayData[idx] == nil {
 				label.SetText("")
 				return
 			}
-			ms := data[id.Row-1]
+			ms := a.monDisplayData[idx]
 			switch id.Col {
 			case 0:
 				label.Alignment = fyne.TextAlignLeading
@@ -525,26 +520,52 @@ func formatNumber(n int64) string {
 	return string(result)
 }
 
-// getMapData 获取当前显示的地图数据
-func (a *App) getMapData() []*simulator.MapStat {
-	if a.filteredMapStats != nil {
-		return a.filteredMapStats
+// resolveMapName 将地图编号解析为地图名称
+func (a *App) resolveMapName(mapID string) string {
+	if a.mapInfoLookup != nil {
+		if name, ok := a.mapInfoLookup[mapID]; ok {
+			return name
+		}
 	}
-	if a.simResult != nil {
-		return a.simResult.MapStats
-	}
-	return nil
+	return mapID
 }
 
-// getMonData 获取当前显示的怪物数据
-func (a *App) getMonData() []*simulator.MonsterStat {
+// refreshMapDisplayData 刷新地图显示数据（固定容量，防止滚动重置）
+func (a *App) refreshMapDisplayData() {
+	var source []*simulator.MapStat
+	if a.filteredMapStats != nil {
+		source = a.filteredMapStats
+	} else if a.simResult != nil {
+		source = a.simResult.MapStats
+	}
+	a.mapDisplayCount = len(source)
+	// 确保容量足够
+	for len(a.mapDisplayData) < a.mapDisplayCount {
+		a.mapDisplayData = append(a.mapDisplayData, nil)
+	}
+	copy(a.mapDisplayData, source)
+	// 清除多余位置
+	for i := a.mapDisplayCount; i < len(a.mapDisplayData); i++ {
+		a.mapDisplayData[i] = nil
+	}
+}
+
+// refreshMonDisplayData 刷新怪物显示数据（固定容量，防止滚动重置）
+func (a *App) refreshMonDisplayData() {
+	var source []*simulator.MonsterStat
 	if a.filteredMonStats != nil {
-		return a.filteredMonStats
+		source = a.filteredMonStats
+	} else if a.simResult != nil {
+		source = a.simResult.MonsterStats
 	}
-	if a.simResult != nil {
-		return a.simResult.MonsterStats
+	a.monDisplayCount = len(source)
+	for len(a.monDisplayData) < a.monDisplayCount {
+		a.monDisplayData = append(a.monDisplayData, nil)
 	}
-	return nil
+	copy(a.monDisplayData, source)
+	for i := a.monDisplayCount; i < len(a.monDisplayData); i++ {
+		a.monDisplayData[i] = nil
+	}
 }
 
 // onItemSelected 点击物品列表联动：筛选地图和怪物
@@ -593,26 +614,28 @@ func (a *App) onItemSelected(row int) {
 		}
 	}
 
-	// 刷新列表
+	// 刷新显示数据（固定容量，防止滚动位置重置）
+	a.refreshMapDisplayData()
+	a.refreshMonDisplayData()
 	a.simMapTable.Refresh()
 	a.simMonsterTable.Refresh()
-	a.statusLabel.SetText(fmt.Sprintf("已选中物品: %s | 地图:%d个 怪物:%d个", selectedItem, len(a.filteredMapStats), len(a.filteredMonStats)))
+	a.statusLabel.SetText(fmt.Sprintf("已选中物品: %s | 地图:%d个 怪物:%d个", selectedItem, a.mapDisplayCount, a.monDisplayCount))
 }
 
 // onMapSelected 点击地图列表联动：筛选怪物
 func (a *App) onMapSelected(row int) {
-	data := a.getMapData()
-	if data == nil || row >= len(data) {
+	if row >= a.mapDisplayCount || row >= len(a.mapDisplayData) || a.mapDisplayData[row] == nil {
 		return
 	}
-	selectedMap := data[row].MapName
+	selectedMapID := a.mapDisplayData[row].MapName
+	selectedMapName := a.resolveMapName(selectedMapID)
 
 	// 筛选该地图的怪物
 	a.filteredMonStats = nil
 	if a.monGenEntries != nil {
 		monsterSet := make(map[string]bool)
 		for _, mg := range a.monGenEntries {
-			if mg.MapName == selectedMap {
+			if mg.MapName == selectedMapID {
 				monsterSet[mg.MonsterName] = true
 			}
 		}
@@ -625,8 +648,10 @@ func (a *App) onMapSelected(row int) {
 		}
 	}
 
+	// 刷新显示数据（固定容量，防止滚动位置重置）
+	a.refreshMonDisplayData()
 	a.simMonsterTable.Refresh()
-	a.statusLabel.SetText(fmt.Sprintf("已选中地图: %s | 怪物:%d个", selectedMap, len(a.filteredMonStats)))
+	a.statusLabel.SetText(fmt.Sprintf("已选中地图: %s | 怪物:%d个", selectedMapName, a.monDisplayCount))
 }
 
 // buildAuthTab 构建授权管理页
@@ -765,12 +790,26 @@ func (a *App) showMapPicker() {
 	}
 	var names []string
 	for mapID := range mapSet {
-		names = append(names, mapID)
+		displayName := a.resolveMapName(mapID)
+		if displayName != mapID {
+			names = append(names, fmt.Sprintf("%s (%s)", mapID, displayName))
+		} else {
+			names = append(names, mapID)
+		}
 	}
 	sort.Strings(names)
 	a.showMultiPicker("选择地图", names, func(selected []string) {
-		a.selectedMaps = selected
-		a.simMapCount.SetText(fmt.Sprintf("(%d)", len(selected)))
+		// 提取地图编号（去掉括号中的名称部分）
+		var mapIDs []string
+		for _, s := range selected {
+			if idx := strings.Index(s, " ("); idx > 0 {
+				mapIDs = append(mapIDs, s[:idx])
+			} else {
+				mapIDs = append(mapIDs, s)
+			}
+		}
+		a.selectedMaps = mapIDs
+		a.simMapCount.SetText(fmt.Sprintf("(%d)", len(mapIDs)))
 	})
 }
 
@@ -905,6 +944,8 @@ func (a *App) onRunSimNew() {
 		result := a.simulator.SimulateAll(files, a.monGenEntries, cfg)
 		a.simResult = result
 
+		a.refreshMapDisplayData()
+		a.refreshMonDisplayData()
 		a.simItemTable.Refresh()
 		a.simMapTable.Refresh()
 		a.simMonsterTable.Refresh()
