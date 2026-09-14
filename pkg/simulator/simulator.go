@@ -253,64 +253,93 @@ func (s *Simulator) SimulateAll(
 		}
 		monsterAgg[monsterName].KillCount += totalKills
 
-		// 模拟掉落
-		for i := int64(0); i < totalKills; i++ {
-			for _, dp := range validEntries {
-				if s.rng.Float64() < dp.prob {
-					itemName := dp.entry.ItemName
-					// 物品统计
-					if itemAgg[itemName] == nil {
-						itemAgg[itemName] = &ItemStat{
-							ItemName:    itemName,
-							Probability: dp.entry.Probability(),
-							Maps:        make(map[string]bool),
-							Monsters:    make(map[string]bool),
-						}
-					}
-					itemAgg[itemName].DropCount++
-					itemAgg[itemName].TotalQty += int64(dp.entry.Quantity)
-					itemAgg[itemName].Monsters[monsterName] = true
+		// 按地图分别模拟掉落（每个地图的击杀独立计算，掉落归属到实际击杀的地图）
+		if hasMapInfo && len(mapInfos) > 0 {
+			for _, mi := range mapInfos {
+				if len(mapFilterSet) > 0 && !mapFilterSet[mi.mapName] {
+					continue
+				}
+				totalDurationSec := config.DurationHours * 3600
+				totalRefreshes := totalDurationSec / mi.refreshSec
+				mapKills := int64(totalRefreshes) * int64(mi.count)
+				mapKills = int64(float64(mapKills) * config.KillRatio)
+				if mapKills <= 0 {
+					continue
+				}
 
-					// 物品→怪物掉落数跟踪
-					if itemMonsterDrops[itemName] == nil {
-						itemMonsterDrops[itemName] = make(map[string]int64)
-					}
-					itemMonsterDrops[itemName][monsterName]++
+				// 模拟该地图上的掉落
+				for i := int64(0); i < mapKills; i++ {
+					for _, dp := range validEntries {
+						if s.rng.Float64() < dp.prob {
+							itemName := dp.entry.ItemName
 
-					if hasMapInfo {
-						for _, mi := range mapInfos {
-							if len(mapFilterSet) > 0 && !mapFilterSet[mi.mapName] {
-								continue
+							// 物品统计
+							if itemAgg[itemName] == nil {
+								itemAgg[itemName] = &ItemStat{
+									ItemName:    itemName,
+									Probability: dp.entry.Probability(),
+									Maps:        make(map[string]bool),
+									Monsters:    make(map[string]bool),
+								}
 							}
+							itemAgg[itemName].DropCount++
+							itemAgg[itemName].TotalQty += int64(dp.entry.Quantity)
+							itemAgg[itemName].Monsters[monsterName] = true
 							itemAgg[itemName].Maps[mi.mapName] = true
-							// 物品→地图掉落数跟踪
+
+							// 物品→怪物掉落数
+							if itemMonsterDrops[itemName] == nil {
+								itemMonsterDrops[itemName] = make(map[string]int64)
+							}
+							itemMonsterDrops[itemName][monsterName]++
+
+							// 物品→地图掉落数（归属到实际击杀的地图）
 							if itemMapDrops[itemName] == nil {
 								itemMapDrops[itemName] = make(map[string]int64)
 							}
 							itemMapDrops[itemName][mi.mapName]++
-						}
-					} else {
-						itemAgg[itemName].Maps["未知地图"] = true
-						if itemMapDrops[itemName] == nil {
-							itemMapDrops[itemName] = make(map[string]int64)
-						}
-						itemMapDrops[itemName]["未知地图"]++
-					}
 
-					// 怪物掉落统计
-					monsterAgg[monsterName].DropCount++
+							// 怪物掉落统计
+							monsterAgg[monsterName].DropCount++
 
-					// 地图掉落统计
-					if hasMapInfo {
-						for _, mi := range mapInfos {
-							if len(mapFilterSet) > 0 && !mapFilterSet[mi.mapName] {
-								continue
-							}
+							// 地图掉落统计
 							if mapAgg[mi.mapName] != nil {
 								mapAgg[mi.mapName].DropCount++
 							}
 						}
-					} else {
+					}
+				}
+			}
+		} else {
+			// 没有MonGen信息，使用默认配置
+			for i := int64(0); i < totalKills; i++ {
+				for _, dp := range validEntries {
+					if s.rng.Float64() < dp.prob {
+						itemName := dp.entry.ItemName
+						if itemAgg[itemName] == nil {
+							itemAgg[itemName] = &ItemStat{
+								ItemName:    itemName,
+								Probability: dp.entry.Probability(),
+								Maps:        make(map[string]bool),
+								Monsters:    make(map[string]bool),
+							}
+						}
+						itemAgg[itemName].DropCount++
+						itemAgg[itemName].TotalQty += int64(dp.entry.Quantity)
+						itemAgg[itemName].Monsters[monsterName] = true
+						itemAgg[itemName].Maps["未知地图"] = true
+
+						if itemMonsterDrops[itemName] == nil {
+							itemMonsterDrops[itemName] = make(map[string]int64)
+						}
+						itemMonsterDrops[itemName][monsterName]++
+
+						if itemMapDrops[itemName] == nil {
+							itemMapDrops[itemName] = make(map[string]int64)
+						}
+						itemMapDrops[itemName]["未知地图"]++
+
+						monsterAgg[monsterName].DropCount++
 						if mapAgg["未知地图"] != nil {
 							mapAgg["未知地图"].DropCount++
 						}

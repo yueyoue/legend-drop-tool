@@ -185,10 +185,7 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 	}
 
 	header := widget.NewLabelWithStyle("怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	scrollList := container.NewVScroll(a.fileList)
-	leftContent := container.NewBorder(header, nil, nil, nil, scrollList)
-	// 用Max容器包裹，设置最小宽度，确保HSplit分隔条可拖动
-	return container.NewMax(leftContent)
+	return container.NewBorder(header, nil, nil, nil, a.fileList)
 }
 
 // buildDetailTabs 构建右侧详情标签页

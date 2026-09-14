@@ -441,10 +441,10 @@ func FindMonGenForMonster(monGenEntries []*MonGenEntry, monsterName string) (ref
 }
 
 // ParseMapInfo 解析 MapInfo.txt 获取地图编号到名称的映射
-// 常见格式:
-//   地图编号\t地图名称
-//   地图编号 地图名称 X Y
-//   地图编号,地图名称
+// 标准格式: [地图编号 地图名称] 标记...
+// 例如: [0122 盟重省] DAY
+//       [newren|0139 比奇省] SAFE NODROPITEM
+//       [0 比奇省] ALLOWUSEMYSHOP ONKILLMON
 func ParseMapInfo(filePath string) (map[string]string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -455,34 +455,36 @@ func ParseMapInfo(filePath string) (map[string]string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	result := make(map[string]string)
 
+	reBracket := regexp.MustCompile(`^\[(.+?)\]`)
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ";") {
 			continue
 		}
 
-		// 尝试逗号分隔
-		if strings.Contains(line, ",") {
-		parts := strings.SplitN(line, ",", 2)
-			if len(parts) >= 2 {
-				mapID := strings.TrimSpace(parts[0])
-				mapName := strings.TrimSpace(parts[1])
-				if mapID != "" && mapName != "" {
-					result[mapID] = mapName
-				}
-				continue
-			}
+		// 匹配 [...] 中的内容
+		match := reBracket.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		inner := strings.TrimSpace(match[1])
+
+		// 按空格分割，第一部分是地图编号，第二部分是地图名称
+		fields := strings.Fields(inner)
+		if len(fields) < 2 {
+			continue
 		}
 
-		// Tab 或空格分隔
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			mapID := fields[0]
-			mapName := fields[1]
-			// 如果第二个字段是数字，可能是坐标，跳过
-			if _, err := strconv.Atoi(mapName); err == nil {
-				continue
-			}
+		mapID := fields[0]
+		mapName := fields[1]
+
+		// 处理 newren|0139 这种带前缀的格式，取 | 后面的部分
+		if idx := strings.LastIndex(mapID, "|"); idx >= 0 {
+			mapID = mapID[idx+1:]
+		}
+
+		if mapID != "" && mapName != "" {
 			result[mapID] = mapName
 		}
 	}
