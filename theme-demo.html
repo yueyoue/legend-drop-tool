@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>传奇爆率工具 - 主题演示</title>
+<style>
+  /* ========== 基础重置 & 变量 ========== */
+  :root {
+    --bg-primary: #0f1117;
+    --bg-secondary: #161822;
+    --bg-tertiary: #1c1f2e;
+    --bg-card: #1e2235;
+    --bg-hover: #252a3a;
+    --bg-active: #2a3048;
+    --border: #2a2e42;
+    --border-light: #353a52;
+    --text-primary: #e4e6f0;
+    --text-secondary: #8b90a8;
+    --text-muted: #5a5f78;
+    --accent: #d4a843;
+    --accent-hover: #e0b94f;
+    --accent-dim: rgba(212,168,67,0.15);
+    --danger: #e05555;
+    --danger-dim: rgba(224,85,85,0.15);
+    --success: #4ecb71;
+    --success-dim: rgba(78,203,113,0.15);
+    --info: #5b9df0;
+    --info-dim: rgba(91,157,240,0.12);
+    --purple: #a78bfa;
+    --purple-dim: rgba(167,139,250,0.12);
+    --scrollbar-bg: #161822;
+    --scrollbar-thumb: #2a2e42;
+    --radius: 6px;
+    --radius-lg: 10px;
+    --font: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --mono: 'Cascadia Code', 'Consolas', monospace;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; font-family: var(--font); background: var(--bg-primary); color: var(--text-primary); font-size: 13px; }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a3f58; }
+
+  /* ========== 整体布局 ========== */
+  .app { display:flex; flex-direction:column; height:100vh; }
+
+  /* ========== 顶栏 ========== */
+  .toolbar {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .toolbar-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .toolbar label { color: var(--text-secondary); font-size:12px; white-space:nowrap; }
+  .toolbar input[type="text"], .toolbar select {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 5px 10px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    outline: none;
+  }
+  .toolbar input[type="text"]:focus, .toolbar select:focus {
+    border-color: var(--accent);
+  }
+  .toolbar input[type="text"] { flex:1; min-width:200px; }
+  .toolbar select { min-width:110px; }
+
+  /* 按钮通用 */
+  .btn {
+    display: inline-flex; align-items:center; gap:4px;
+    padding: 5px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--bg-hover); border-color: var(--border-light); }
+  .btn-primary { background: var(--accent); color:#000; border-color: var(--accent); font-weight:600; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: var(--danger-dim); color: var(--danger); border-color: transparent; }
+  .btn-danger:hover { background: rgba(224,85,85,0.25); }
+  .btn-sm { padding:3px 10px; font-size:11px; }
+  .btn-icon { padding:5px 8px; }
+
+  .separator { width:1px; height:20px; background: var(--border); margin:0 4px; flex-shrink:0; }
+
+  /* ========== 主体 ========== */
+  .main { display:flex; flex:1; overflow:hidden; }
+
+  /* ========== 左侧面板 ========== */
+  .sidebar {
+    width: 220px;
+    min-width: 180px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 13px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+  .sidebar-list { flex:1; overflow-y:auto; }
+  .sidebar-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(42,46,66,0.5);
+    transition: background .1s;
+  }
+  .sidebar-item:hover { background: var(--bg-hover); }
+  .sidebar-item.active { background: var(--bg-active); border-left: 3px solid var(--accent); }
+  .sidebar-item .name { font-size:12px; }
+  .sidebar-item .count { font-size:11px; color: var(--text-muted); }
+
+  /* ========== 右侧内容区 ========== */
+  .content { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* Tab 栏 */
+  .tabs {
+    display: flex;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 9px 20px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border-bottom: 2px solid transparent;
+    transition: all .15s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Tab 内容 */
+  .tab-content { flex:1; overflow:hidden; position:relative; }
+  .tab-pane { display:none; height:100%; flex-direction:column; }
+  .tab-pane.active { display:flex; }
+
+  /* ========== 爆率修改 Tab ========== */
+  .edit-toolbar {
+    display:flex; gap:6px; padding:8px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .entry-list { flex:1; overflow-y:auto; padding:4px 0; }
+  .entry {
+    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    border-bottom: 1px solid rgba(42,46,66,0.3);
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .entry:hover { background: var(--bg-hover); }
+  .entry.active { background: var(--bg-active); }
+  .entry .icon { width:20px; text-align:center; flex-shrink:0; }
+  .entry .indent { display:inline-block; }
+  .entry .prob { color: var(--accent); min-width:60px; }
+  .entry .item-name { color: var(--info); flex:1; }
+  .entry .trigger { color: var(--text-muted); font-size:11px; }
+  .entry .qty { color: var(--purple); min-width:30px; text-align:right; }
+  .entry-comment { color: var(--text-muted); font-style:italic; }
+  .entry-call { color: var(--success); }
+  .entry-child { color: var(--purple); font-weight:600; }
+
+  /* ========== 爆率模拟 Tab ========== */
+  .sim-filter {
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .filter-group label.group-title {
+    display:block; font-weight:600; font-size:12px; margin-bottom:6px; color: var(--accent);
+  }
+  .filter-group .options { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .radio-opt {
+    padding: 3px 10px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all .15s;
+  }
+  .radio-opt.selected { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .radio-opt:hover { border-color: var(--border-light); }
+  .badge { font-size:11px; color: var(--text-muted); }
+
+  .sim-params {
+    display:flex; align-items:center; gap:10px; padding:8px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .sim-params label { color: var(--text-secondary); font-size:12px; white-space:nowrap; }
+  .sim-params input[type="text"] {
+    background: var(--bg-tertiary); border:1px solid var(--border); color: var(--text-primary);
+    padding:4px 8px; border-radius:var(--radius); width:50px; font-size:12px; text-align:center;
+  }
+  .sim-params input:focus { border-color: var(--accent); outline:none; }
+  .check-label { display:flex; align-items:center; gap:4px; font-size:12px; color: var(--text-secondary); cursor:pointer; }
+  .check-label input[type="checkbox"] { accent-color: var(--accent); }
+
+  .sim-results { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .result-tables { flex:1; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; overflow:hidden; }
+  .result-col { display:flex; flex-direction:column; border-right:1px solid var(--border); overflow-y:auto; position:relative; }
+  .result-col:last-child { border-right:none; }
+  .result-col-header {
+    padding:0; text-align:center; font-weight:600; font-size:12px;
+    background: var(--bg-tertiary);
+    display:flex; flex-direction:column;
+    position:sticky; top:0; z-index:2;
+  }
+  .result-col-header .col-title {
+    padding:8px 12px 4px; display:flex; flex-direction:column; gap:4px;
+    border-bottom:1px solid var(--border);
+  }
+  .result-col-header .col-names {
+    display:flex; justify-content:space-between; padding:5px 12px;
+    font-size:12px; font-weight:600; color: var(--text-secondary);
+    background: var(--bg-tertiary); border-bottom:1px solid var(--border);
+  }
+  .result-col-header .search {
+    background: var(--bg-primary); border:1px solid var(--border); color: var(--text-primary);
+    padding:3px 8px; border-radius:var(--radius); font-size:11px; width:100%;
+  }
+  .result-col-header .search:focus { border-color: var(--accent); outline:none; }
+  .result-row {
+    display:flex; justify-content:space-between; padding:5px 12px;
+    font-size:12px; border-bottom:1px solid rgba(42,46,66,0.3);
+    cursor:pointer; transition:background .1s;
+  }
+  .result-row:hover { background: var(--bg-hover); }
+  .result-row .label { color: var(--text-primary); }
+  .result-row .value { color: var(--accent); font-family:var(--mono); text-align:right; min-width:60px; }
+
+  .sim-summary {
+    padding:8px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    display:flex; align-items:center; gap:12px; flex-shrink:0;
+    flex-wrap:wrap;
+  }
+  .stat-chip {
+    display:flex; align-items:center; gap:4px;
+    padding:3px 10px; border-radius:20px;
+    font-size:11px; background: var(--bg-tertiary); border:1px solid var(--border);
+  }
+  .stat-chip .dot { width:6px; height:6px; border-radius:50%; }
+  .stat-chip .dot.gold { background: var(--accent); }
+  .stat-chip .dot.green { background: var(--success); }
+  .stat-chip .dot.blue { background: var(--info); }
+  .stat-chip .dot.purple { background: var(--purple); }
+
+  /* 稀有追踪 */
+  .tracker {
+    padding:8px 16px;
+    background: var(--bg-secondary);
+    border-top:1px solid var(--border);
+    flex-shrink:0;
+    max-height:80px; overflow-y:auto;
+  }
+  .tracker-title { font-size:11px; font-weight:600; color: var(--purple); margin-bottom:4px; }
+  .tracker-items { display:flex; flex-wrap:wrap; gap:6px; }
+  .tracker-item {
+    padding:2px 8px; border-radius:12px; font-size:10px;
+    background: var(--purple-dim); color: var(--purple); border:1px solid rgba(167,139,250,0.2);
+  }
+
+  /* ========== 操作日志 Tab ========== */
+  .log-area {
+    flex:1; overflow-y:auto; padding:12px 16px;
+    font-family: var(--mono); font-size:12px; line-height:1.8;
+  }
+  .log-line { display:flex; gap:8px; }
+  .log-time { color: var(--text-muted); flex-shrink:0; }
+  .log-action { color: var(--info); min-width:80px; }
+  .log-file { color: var(--text-secondary); min-width:120px; }
+  .log-detail { color: var(--success); }
+  .log-header {
+    display:flex; align-items:center; padding:8px 16px;
+    background: var(--bg-secondary); border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+
+  /* ========== 授权管理 Tab ========== */
+  .auth-content { padding:20px 24px; overflow-y:auto; }
+  .auth-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .auth-card h3 { font-size:14px; margin-bottom:12px; color: var(--accent); }
+  .auth-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .auth-row label { color: var(--text-secondary); min-width:70px; font-size:12px; }
+  .machine-code {
+    font-family: var(--mono); font-size:12px; color: var(--info);
+    background: var(--bg-primary); padding:6px 12px; border-radius:var(--radius);
+    border:1px solid var(--border); flex:1; word-break:break-all;
+  }
+  .status-badge {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:3px 12px; border-radius:20px; font-size:12px; font-weight:600;
+  }
+  .status-badge.active { background:var(--success-dim); color:var(--success); }
+  .status-badge.inactive { background:var(--danger-dim); color:var(--danger); }
+  .help-text { font-size:12px; color: var(--text-muted); line-height:1.8; }
+
+  /* ========== 状态栏 ========== */
+  .statusbar {
+    padding: 5px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .statusbar .version { color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== 顶栏工具栏 ===== -->
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <label>服务端目录:</label>
+      <input type="text" value="D:\MirServer" />
+      <button class="btn">📁 浏览...</button>
+      <div class="separator"></div>
+      <label>引擎类型:</label>
+      <select>
+        <option>自动检测</option>
+        <option>HERO</option>
+        <option selected>GOM</option>
+        <option>GEE</option>
+        <option>BLUE</option>
+      </select>
+      <button class="btn">🔍 自动检测</button>
+      <button class="btn btn-primary">📂 加载爆率文件</button>
+    </div>
+  </div>
+
+  <!-- ===== 主体 ===== -->
+  <div class="main">
+    <!-- 左侧怪物列表 -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">👹 怪 物 列 表</div>
+      <div class="sidebar-list">
+        <div class="sidebar-item active"><span class="name">白野猪</span><span class="count">18条</span></div>
+        <div class="sidebar-item"><span class="name">祖玛教主</span><span class="count">24条</span></div>
+        <div class="sidebar-item"><span class="name">赤月恶魔</span><span class="count">31条</span></div>
+        <div class="sidebar-item"><span class="name">沃玛教主</span><span class="count">15条</span></div>
+        <div class="sidebar-item"><span class="name">牛魔王</span><span class="count">22条</span></div>
+        <div class="sidebar-item"><span class="name">触龙神</span><span class="count">12条</span></div>
+        <div class="sidebar-item"><span class="name">黄泉教主</span><span class="count">19条</span></div>
+        <div class="sidebar-item"><span class="name">虹魔教主</span><span class="count">27条</span></div>
+        <div class="sidebar-item"><span class="name">双头金刚</span><span class="count">16条</span></div>
+        <div class="sidebar-item"><span class="name">双头血魔</span><span class="count">16条</span></div>
+        <div class="sidebar-item"><span class="name">邪恶钳虫</span><span class="count">9条</span></div>
+        <div class="sidebar-item"><span class="name">骷髅精灵</span><span class="count">7条</span></div>
+        <div class="sidebar-item"><span class="name">半兽勇士</span><span class="count">11条</span></div>
+        <div class="sidebar-item"><span class="name">僵尸</span><span class="count">5条</span></div>
+        <div class="sidebar-item"><span class="name">蜈蚣</span><span class="count">8条</span></div>
+      </div>
+    </div>
+
+    <!-- 右侧内容 -->
+    <div class="content">
+      <!-- Tab 栏 -->
+      <div class="tabs">
+        <div class="tab active" data-tab="edit">📝 爆率修改</div>
+        <div class="tab" data-tab="sim">📊 爆率模拟</div>
+        <div class="tab" data-tab="log">📋 操作日志</div>
+        <div class="tab" data-tab="auth">🔑 授权管理</div>
+      </div>
+
+      <div class="tab-content">
+        <!-- ===== Tab 1: 爆率修改 ===== -->
+        <div class="tab-pane active" id="pane-edit">
+          <div class="edit-toolbar">
+            <button class="btn btn-sm">➕ 新增掉落</button>
+            <button class="btn btn-sm">✖️ 批量倍率调整</button>
+            <button class="btn btn-sm">🎯 批量设置概率</button>
+            <button class="btn btn-sm">⚠️ 爆率异常检测</button>
+            <div class="separator"></div>
+            <button class="btn btn-sm">💾 备份当前文件</button>
+            <button class="btn btn-sm">📦 备份整个目录</button>
+            <div style="flex:1"></div>
+            <button class="btn btn-sm btn-primary">💾 保存文件</button>
+          </div>
+          <div class="entry-list">
+            <div class="entry"><span class="icon entry-comment">📝</span><span class="entry-comment">; 白野猪爆率配置</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent"></span><span class="prob">1/100</span><span class="item-name">裁决之杖</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent"></span><span class="prob">1/1</span><span class="item-name">金币</span><span class="qty">x10000</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent"></span><span class="prob">1/200</span><span class="item-name">圣战戒指</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon entry-child">📦</span><span class="entry-child">#CHILD 1/1 RANDOM</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent" style="width:24px"></span><span class="prob">1/1</span><span class="item-name">天尊头盔</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent" style="width:24px"></span><span class="prob">1/1</span><span class="item-name">天尊项链</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent" style="width:24px"></span><span class="prob">1/1</span><span class="item-name">天尊手镯</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent" style="width:24px"></span><span class="prob">1/1</span><span class="item-name">天尊戒指</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon entry-child">📦</span><span class="entry-child">)</span></div>
+            <div class="entry"><span class="icon entry-child">📦</span><span class="entry-child">#CHILD 1/2</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent" style="width:24px"></span><span class="prob">1/100</span><span class="item-name">火球术</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent" style="width:24px"></span><span class="prob">1/1</span><span class="item-name">治愈术</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon entry-child">📦</span><span class="entry-child">)</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent"></span><span class="prob">1/50</span><span class="item-name">强效太阳水</span><span class="trigger">|@爆稀有装备检测</span><span class="qty">x3</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent"></span><span class="prob">1/80</span><span class="item-name">祝福油</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon entry-call">📎</span><span class="entry-call">#CALL [\\爆率系统\\基础爆率.txt] @药水</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent"></span><span class="prob">1/30</span><span class="item-name">战神油</span><span class="qty">x1</span></div>
+            <div class="entry"><span class="icon">🎯</span><span class="indent"></span><span class="prob">1/150</span><span class="item-name">龙纹剑</span><span class="qty">x1</span></div>
+          </div>
+        </div>
+
+        <!-- ===== Tab 2: 爆率模拟 ===== -->
+        <div class="tab-pane" id="pane-sim">
+          <!-- 筛选条件 -->
+          <div class="sim-filter">
+            <div class="filter-group">
+              <label class="group-title">👹 怪物</label>
+              <div class="options">
+                <span class="radio-opt selected">所有怪物</span>
+                <span class="radio-opt">指定怪物</span>
+                <span class="badge">(15)</span>
+              </div>
+            </div>
+            <div class="filter-group">
+              <label class="group-title">📦 物品</label>
+              <div class="options">
+                <span class="radio-opt selected">所有物品</span>
+                <span class="radio-opt">指定物品</span>
+                <span class="badge">(238)</span>
+              </div>
+            </div>
+            <div class="filter-group">
+              <label class="group-title">🗺️ 地图</label>
+              <div class="options">
+                <span class="radio-opt selected">所有地图</span>
+                <span class="radio-opt">指定地图</span>
+                <span class="badge">(12)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 模拟参数 -->
+          <div class="sim-params">
+            <label>模拟时长(h):</label>
+            <input type="text" value="24" />
+            <label>消灭比例(%):</label>
+            <input type="text" value="50" />
+            <label class="check-label"><input type="checkbox" checked /> 保底</label>
+            <label>连续空击杀:</label>
+            <input type="text" value="100" />
+            <label>模拟轮数:</label>
+            <input type="text" value="1" />
+            <div style="flex:1"></div>
+            <button class="btn btn-primary">▶ 开始模拟</button>
+          </div>
+
+          <!-- 结果表格 -->
+          <div class="sim-results">
+            <div class="result-tables">
+              <!-- 掉落物品 -->
+              <div class="result-col">
+                  <div class="result-col-header">
+                    <div class="col-title">
+                      <span>📋 掉落物品列表</span>
+                      <input type="text" class="search" placeholder="搜索物品名称..." />
+                    </div>
+                    <div class="col-names"><span>物品名称</span><span>掉落数量</span></div>
+                  </div>
+                  <div class="result-row"><span class="label">金币</span><span class="value">1,248,600</span></div>
+                  <div class="result-row"><span class="label">强效太阳水</span><span class="value">8,432</span></div>
+                  <div class="result-row"><span class="label">战神油</span><span class="value">4,128</span></div>
+                  <div class="result-row"><span class="label">祝福油</span><span class="value">1,587</span></div>
+                  <div class="result-row"><span class="label">天尊头盔</span><span class="value">623</span></div>
+                  <div class="result-row"><span class="label">天尊项链</span><span class="value">641</span></div>
+                  <div class="result-row"><span class="label">天尊手镯</span><span class="value">618</span></div>
+                  <div class="result-row"><span class="label">天尊戒指</span><span class="value">637</span></div>
+                  <div class="result-row"><span class="label">治愈术</span><span class="value">6,245</span></div>
+                  <div class="result-row"><span class="label">火球术</span><span class="value">124</span></div>
+                  <div class="result-row"><span class="label">裁决之杖</span><span class="value">128</span></div>
+                  <div class="result-row"><span class="label">圣战戒指</span><span class="value">62</span></div>
+                  <div class="result-row"><span class="label">龙纹剑</span><span class="value">85</span></div>
+                  <div class="result-row"><span class="label">骨玉权杖</span><span class="value">76</span></div>
+                  <div class="result-row"><span class="label">无极棍</span><span class="value">68</span></div>
+                  <div class="result-row"><span class="label">炼狱</span><span class="value">92</span></div>
+                  <div class="result-row"><span class="label">井中月</span><span class="value">57</span></div>
+                  <div class="result-row"><span class="label">银蛇</span><span class="value">43</span></div>
+                  <div class="result-row"><span class="label">魔杖</span><span class="value">51</span></div>
+                  <div class="result-row"><span class="label">修罗</span><span class="value">38</span></div>
+                  <div class="result-row"><span class="label">凝霜</span><span class="value">29</span></div>
+                  <div class="result-row"><span class="label">降魔</span><span class="value">34</span></div>
+                  <div class="result-row"><span class="label">偃月刀</span><span class="value">26</span></div>
+                  <div class="result-row"><span class="label">斩马刀</span><span class="value">19</span></div>
+              </div>
+
+              <!-- 掉落地图 -->
+              <div class="result-col">
+                  <div class="result-col-header">
+                    <div class="col-title">
+                      <span>🗺️ 掉落地图列表</span>
+                      <input type="text" class="search" placeholder="搜索地图..." />
+                    </div>
+                    <div class="col-names"><span>地图名称</span><span>掉落数量</span></div>
+                  </div>
+                  <div class="result-row"><span class="label">祖玛寺庙七层</span><span class="value">28,456</span></div>
+                  <div class="result-row"><span class="label">赤月峡谷</span><span class="value">21,380</span></div>
+                  <div class="result-row"><span class="label">沃玛寺庙三层</span><span class="value">18,924</span></div>
+                  <div class="result-row"><span class="label">牛魔洞穴七层</span><span class="value">15,672</span></div>
+                  <div class="result-row"><span class="label">石墓阵</span><span class="value">12,340</span></div>
+                  <div class="result-row"><span class="label">蜈蚣洞</span><span class="value">9,876</span></div>
+                  <div class="result-row"><span class="label">封魔谷</span><span class="value">8,234</span></div>
+                  <div class="result-row"><span class="label">骨魔洞五层</span><span class="value">6,712</span></div>
+                  <div class="result-row"><span class="label">比奇矿区</span><span class="value">5,438</span></div>
+                  <div class="result-row"><span class="label">毒蛇山谷</span><span class="value">4,210</span></div>
+                  <div class="result-row"><span class="label">盟重省</span><span class="value">3,876</span></div>
+                  <div class="result-row"><span class="label">苍月岛</span><span class="value">2,945</span></div>
+                  <div class="result-row"><span class="label">狐月山</span><span class="value">2,108</span></div>
+              </div>
+
+              <!-- 掉落怪物 -->
+              <div class="result-col">
+                  <div class="result-col-header">
+                    <div class="col-title">
+                      <span>👹 掉落怪物列表</span>
+                      <input type="text" class="search" placeholder="搜索怪物..." />
+                    </div>
+                    <div class="col-names"><span>怪物名称</span><span>击杀 / 掉落</span></div>
+                  </div>
+                  <div class="result-row"><span class="label">白野猪</span><span class="value">12,480 / 11,232</span></div>
+                  <div class="result-row"><span class="label">祖玛教主</span><span class="value">864 / 816</span></div>
+                  <div class="result-row"><span class="label">赤月恶魔</span><span class="value">720 / 684</span></div>
+                  <div class="result-row"><span class="label">沃玛教主</span><span class="value">1,200 / 1,080</span></div>
+                  <div class="result-row"><span class="label">牛魔王</span><span class="value">480 / 456</span></div>
+                  <div class="result-row"><span class="label">触龙神</span><span class="value">360 / 324</span></div>
+                  <div class="result-row"><span class="label">黄泉教主</span><span class="value">600 / 540</span></div>
+                  <div class="result-row"><span class="label">虹魔教主</span><span class="value">420 / 396</span></div>
+                  <div class="result-row"><span class="label">双头金刚</span><span class="value">480 / 432</span></div>
+                  <div class="result-row"><span class="label">双头血魔</span><span class="value">480 / 456</span></div>
+                  <div class="result-row"><span class="label">邪恶钳虫</span><span class="value">960 / 864</span></div>
+                  <div class="result-row"><span class="label">骷髅精灵</span><span class="value">1,440 / 1,296</span></div>
+                  <div class="result-row"><span class="label">半兽勇士</span><span class="value">1,080 / 972</span></div>
+              </div>
+            </div>
+
+            <!-- 稀有追踪 -->
+            <div class="tracker">
+              <div class="tracker-title">✨ 稀有物品追踪</div>
+              <div class="tracker-items">
+                <span class="tracker-item">裁决之杖 ×128 (0.10%)</span>
+                <span class="tracker-item">龙纹剑 ×85 (0.07%)</span>
+                <span class="tracker-item">圣战戒指 ×62 (0.05%)</span>
+                <span class="tracker-item">屠龙 ×3 (0.002%)</span>
+                <span class="tracker-item">嗜魂法杖 ×1 (0.001%)</span>
+              </div>
+            </div>
+
+            <!-- 统计摘要 -->
+            <div class="sim-summary">
+              <span class="stat-chip"><span class="dot gold"></span> 总击杀: 124,800</span>
+              <span class="stat-chip"><span class="dot green"></span> 总掉落: 112,596</span>
+              <span class="stat-chip"><span class="dot blue"></span> 空爆率: 9.78%</span>
+              <span class="stat-chip"><span class="dot purple"></span> 物品种类: 238</span>
+              <div style="flex:1"></div>
+              <button class="btn btn-sm">📤 导出结果</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Tab 3: 操作日志 ===== -->
+        <div class="tab-pane" id="pane-log">
+          <div class="log-header">
+            <span style="font-weight:600">📋 操作记录</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-sm">🔄 刷新日志</button>
+          </div>
+          <div class="log-area">
+            <div class="log-line"><span class="log-time">[21:34:12]</span><span class="log-action">修改概率</span><span class="log-file">白野猪.txt</span><span class="log-detail">1/100 → 1/50 裁决之杖</span></div>
+            <div class="log-line"><span class="log-time">[21:33:48]</span><span class="log-action">批量倍率</span><span class="log-file">白野猪.txt</span><span class="log-detail">全条目 ×2.0</span></div>
+            <div class="log-line"><span class="log-time">[21:30:15]</span><span class="log-action">加载文件</span><span class="log-file">MonItems/</span><span class="log-detail">已加载 15 个怪物文件</span></div>
+            <div class="log-line"><span class="log-time">[21:28:03]</span><span class="log-action">备份</span><span class="log-file">白野猪.txt</span><span class="log-detail">备份至 backup/白野猪_20260915_212803.txt</span></div>
+            <div class="log-line"><span class="log-time">[21:25:41]</span><span class="log-action">模拟完成</span><span class="log-file">全部怪物</span><span class="log-detail">24h / 124,800次击杀 / 238种物品</span></div>
+            <div class="log-line"><span class="log-time">[21:20:09]</span><span class="log-action">新增条目</span><span class="log-file">祖玛教主.txt</span><span class="log-detail">1/200 屠龙 x1</span></div>
+            <div class="log-line"><span class="log-time">[21:18:33]</span><span class="log-action">保存文件</span><span class="log-file">祖玛教主.txt</span><span class="log-detail">已保存 (自动备份)</span></div>
+            <div class="log-line"><span class="log-time">[21:15:22]</span><span class="log-action">异常检测</span><span class="log-file">全目录</span><span class="log-detail">发现 3 个异常: 2个超高爆率, 1个零掉落</span></div>
+            <div class="log-line"><span class="log-time">[21:10:05]</span><span class="log-action">引擎检测</span><span class="log-file">-</span><span class="log-detail">检测到 GOM 引擎 (发现 #CHILD 特征)</span></div>
+          </div>
+        </div>
+
+        <!-- ===== Tab 4: 授权管理 ===== -->
+        <div class="tab-pane" id="pane-auth">
+          <div class="auth-content">
+            <div class="auth-card">
+              <h3>💻 设备信息</h3>
+              <div class="auth-row">
+                <label>机器码:</label>
+                <div class="machine-code">A7F3-B2D8-9C4E-1F6A-5B0D</div>
+                <button class="btn btn-sm">📋 复制机器码</button>
+              </div>
+            </div>
+
+            <div class="auth-card">
+              <h3>🔑 授权状态</h3>
+              <div class="auth-row">
+                <label>当前状态:</label>
+                <span class="status-badge active">✅ 已激活 (永久授权)</span>
+              </div>
+              <div class="auth-row">
+                <label>激活码:</label>
+                <input type="text" style="flex:1;background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:5px 10px;border-radius:var(--radius);font-size:12px;" placeholder="输入激活码" />
+                <button class="btn btn-primary btn-sm">激活</button>
+              </div>
+            </div>
+
+            <div class="auth-card">
+              <h3>📖 授权说明</h3>
+              <div class="help-text">
+                1. 复制本机机器码<br/>
+                2. 联系管理员获取激活码<br/>
+                3. 输入激活码完成绑定<br/>
+                4. 一机一码，绑定后不可随意更换设备<br/><br/>
+                <span style="color:var(--accent)">当前为开发模式，所有功能可用</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 状态栏 ===== -->
+  <div class="statusbar">
+    <span>就绪 - 已加载 15 个怪物文件 (GOM 引擎)</span>
+    <span class="version">传奇爆率模拟与修改工具 v1.0.9</span>
+  </div>
+</div>
+
+<script>
+// Tab 切换
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
+    // 只有爆率修改 tab 显示左侧怪物列表
+    const sidebar = document.getElementById('sidebar');
+    if (tab.dataset.tab === 'edit') {
+      sidebar.style.display = 'flex';
+    } else {
+      sidebar.style.display = 'none';
+    }
+  });
+});
+
+// 左侧列表选中
+document.querySelectorAll('.sidebar-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+  });
+});
+
+// Radio 选项切换
+document.querySelectorAll('.filter-group .radio-opt').forEach(opt => {
+  opt.addEventListener('click', () => {
+    const group = opt.closest('.options');
+    group.querySelectorAll('.radio-opt').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+  });
+});
+</script>
+</body>
+</html>
