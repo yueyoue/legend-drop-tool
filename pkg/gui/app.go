@@ -3,6 +3,7 @@ package gui
 import (
 	_ "embed"
 	"fmt"
+	"image/color"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -150,7 +151,7 @@ func (a *App) buildUI() fyne.CanvasObject {
 	leftPanel := a.buildFileListPanel()
 	rightPanel := a.buildDetailTabs()
 	a.statusLabel = widget.NewLabel("就绪 - 请选择传奇服务端目录")
-	statusBar := container.NewHBox(a.statusLabel)
+	statusBar := NewCard(container.NewHBox(a.statusLabel), colorBgSecondary, 0, 6)
 
 	// 可拖动分割条（爆率修改等页面使用）
 	splitLayout := newDragDivider(leftPanel, rightPanel, 0.25)
@@ -174,9 +175,9 @@ func (a *App) buildToolbar() fyne.CanvasObject {
 	a.serverPathEntry.SetPlaceHolder("选择传奇服务端根目录 (如 D:\\MirServer)")
 	a.serverPathEntry.SetText(a.cfg.ServerRoot)
 
-	browseBtn := widget.NewButton("浏览...", a.onBrowseServer)
-	loadBtn := widget.NewButton("加载爆率文件", a.onLoadFiles)
-	autoDetectBtn := widget.NewButton("自动检测引擎", a.onAutoDetect)
+	browseBtn := NewRoundedBtn("浏览...", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onBrowseServer)
+	autoDetectBtn := NewRoundedBtn("🔍 自动检测", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onAutoDetect)
+	loadBtn := NewRoundedBtn("📂 加载爆率文件", colorAccent, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, colorAccentHover, 6, a.onLoadFiles)
 
 	a.engineSelect = widget.NewSelect(
 		[]string{"HERO", "GOM", "GEE", "BLUE", "自动检测"},
@@ -184,10 +185,12 @@ func (a *App) buildToolbar() fyne.CanvasObject {
 	)
 	a.engineSelect.SetSelected("自动检测")
 
-	return container.NewVBox(
-		container.NewBorder(nil, nil, widget.NewLabel("服务端目录:"), browseBtn, a.serverPathEntry),
-		container.NewBorder(nil, nil, widget.NewLabel("引擎类型:"), container.NewHBox(autoDetectBtn, loadBtn), a.engineSelect),
-		widget.NewSeparator(),
+	row1 := container.NewBorder(nil, nil, widget.NewLabel("服务端目录:"), browseBtn, a.serverPathEntry)
+	row2 := container.NewBorder(nil, nil, widget.NewLabel("引擎类型:"), container.NewHBox(autoDetectBtn, loadBtn), a.engineSelect)
+
+	return NewCard(
+		container.NewVBox(row1, row2),
+		colorBgSecondary, 0, 10,
 	)
 }
 
@@ -222,9 +225,9 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 		a.updateDetailPanel()
 	}
 
-	header := widget.NewLabelWithStyle("怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	header := widget.NewLabelWithStyle("👹 怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	scroll := container.NewVScroll(a.fileList)
-	return container.NewBorder(header, nil, nil, nil, scroll)
+	return container.NewBorder(NewCard(header, colorBgTertiary, 0, 8), nil, nil, nil, scroll)
 }
 
 // buildDetailTabs 构建右侧详情标签页
@@ -320,16 +323,16 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 		a.onEntrySelected(id)
 	}
 
-	addBtn := widget.NewButton("新增掉落", a.onAddEntry)
-	mulBtn := widget.NewButton("批量倍率调整", a.onBatchMultiply)
-	batchSetBtn := widget.NewButton("批量设置概率", a.onBatchSetProb)
-	saveBtn := widget.NewButton("保存文件", a.onSaveFile)
-	backupBtn := widget.NewButton("备份当前文件", a.onBackupCurrent)
-	backupAllBtn := widget.NewButton("备份整个目录", a.onBackupAll)
-	detectBtn := widget.NewButton("爆率异常检测", a.onDetectAnomaly)
+	addBtn := NewRoundedBtn("➕ 新增掉落", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onAddEntry)
+	mulBtn := NewRoundedBtn("✖️ 批量倍率", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onBatchMultiply)
+	batchSetBtn := NewRoundedBtn("🎯 批量概率", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onBatchSetProb)
+	detectBtn := NewRoundedBtn("⚠️ 异常检测", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onDetectAnomaly)
+	backupBtn := NewRoundedBtn("💾 备份文件", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onBackupCurrent)
+	backupAllBtn := NewRoundedBtn("📦 备份目录", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onBackupAll)
+	saveBtn := NewRoundedBtn("💾 保存", colorAccent, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, colorAccentHover, 6, a.onSaveFile)
 
 	btnBar := container.NewHBox(addBtn, mulBtn, batchSetBtn, detectBtn, backupBtn, backupAllBtn, layout.NewSpacer(), saveBtn)
-	return container.NewBorder(nil, btnBar, nil, nil, a.detailTable)
+	return container.NewBorder(nil, NewCard(btnBar, colorBgSecondary, 0, 6), nil, nil, a.detailTable)
 }
 
 // buildSimTab 构建爆率模拟页
@@ -415,8 +418,7 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	a.simRunCountEntry = widget.NewEntry()
 	a.simRunCountEntry.SetText("1")
 
-	simBtn := widget.NewButton("▶ 开始模拟", a.onRunSimNew)
-	simBtn.Importance = widget.HighImportance
+	simBtn := NewRoundedBtn("▶ 开始模拟", colorAccent, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, colorAccentHover, 6, a.onRunSimNew)
 
 	paramRow := container.NewHBox(
 		widget.NewLabel("模拟时长(h):"), a.simDurationEntry,
@@ -427,7 +429,10 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 		simBtn,
 	)
 
-	configArea := container.NewVBox(filterRow, paramRow, widget.NewSeparator())
+	configArea := container.NewVBox(
+		NewCard(filterRow, colorBgSecondary, 0, 10),
+		NewCard(paramRow, colorBgSecondary, 0, 8),
+	)
 
 	// === 掉落物品列表 (Table) ===
 	a.simItemSearch = widget.NewEntry()
@@ -592,8 +597,8 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	// 统计摘要
 	a.simResultLabel = widget.NewLabel("")
 	a.simResultLabel.Wrapping = fyne.TextWrapWord
-	exportBtn := widget.NewButton("导出结果", a.onExportSimResult)
-	summaryBar := container.NewBorder(nil, nil, nil, exportBtn, a.simResultLabel)
+	exportBtn := NewRoundedBtn("📤 导出结果", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onExportSimResult)
+	summaryBar := NewCard(container.NewBorder(nil, nil, nil, exportBtn, a.simResultLabel), colorBgSecondary, 0, 8)
 
 	// 三列结果（带搜索）
 	a.simMapSearch = widget.NewEntry()
@@ -606,7 +611,7 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	a.simMonsterSearch.OnChanged = func(q string) {
 		a.filterDisplayDataBySearch()
 	}
-	openFileBtn := widget.NewButton("打开文件", func() {
+	openFileBtn := NewRoundedBtn("📂 打开文件", colorBgTertiary, colorTextPrimary, colorBgHover, 6, func() {
 		a.openSelectedMonsterFile()
 	})
 	monsterSearchBar := container.NewBorder(nil, nil, nil, openFileBtn, a.simMonsterSearch)
@@ -1016,7 +1021,7 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 	machineLabel := widget.NewLabel(fmt.Sprintf("本机机器码: %s", machineID))
 	machineLabel.Wrapping = fyne.TextWrapWord
 
-	copyBtn := widget.NewButton("复制机器码", func() {
+	copyBtn := NewRoundedBtn("📋 复制机器码", colorBgTertiary, colorTextPrimary, colorBgHover, 6, func() {
 		a.mainWindow.Clipboard().SetContent(machineID)
 		dialog.ShowInformation("已复制", "机器码已复制到剪贴板", a.mainWindow)
 	})
@@ -1030,7 +1035,7 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 	activateEntry := widget.NewEntry()
 	activateEntry.SetPlaceHolder("输入激活码")
 
-	activateBtn := widget.NewButton("激活", func() {
+	activateBtn := NewRoundedBtn("激活", colorAccent, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, colorAccentHover, 6, func() {
 		code := strings.TrimSpace(activateEntry.Text)
 		if code == "" {
 			dialog.ShowError(fmt.Errorf("请输入激活码"), a.mainWindow)
@@ -1045,24 +1050,34 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 		dialog.ShowInformation("激活成功", "授权已激活，可以使用全部功能", a.mainWindow)
 	})
 
-	helpText := widget.NewLabel("授权说明:\n" +
-		"1. 复制本机机器码\n" +
-		"2. 联系管理员获取激活码\n" +
-		"3. 输入激活码完成绑定\n" +
-		"4. 一机一码，绑定后不可随意更换设备\n\n" +
-		"当前为开发模式，所有功能可用")
+	helpText := widget.NewLabel("1. 复制本机机器码\n2. 联系管理员获取激活码\n3. 输入激活码完成绑定\n4. 一机一码，绑定后不可随意更换设备")
 	helpText.Wrapping = fyne.TextWrapWord
 
-	return container.NewVBox(
-		widget.NewLabel("授权管理"),
-		widget.NewSeparator(),
-		machineLabel, copyBtn,
-		widget.NewSeparator(),
-		statusLabel,
-		container.NewBorder(nil, nil, nil, activateBtn, activateEntry),
-		widget.NewSeparator(),
-		helpText,
+	cardMachine := NewCard(
+		container.NewVBox(
+			widget.NewLabelWithStyle("💻 设备信息", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			container.NewBorder(nil, nil, nil, copyBtn, machineLabel),
+		),
+		colorBgCard, 8, 12,
 	)
+	cardActivate := NewCard(
+		container.NewVBox(
+			widget.NewLabelWithStyle("🔑 授权状态", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			statusLabel,
+			container.NewBorder(nil, nil, nil, activateBtn, activateEntry),
+		),
+		colorBgCard, 8, 12,
+	)
+	cardHelp := NewCard(
+		container.NewVBox(
+			widget.NewLabelWithStyle("📖 授权说明", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			helpText,
+			widget.NewLabelWithStyle("当前为开发模式，所有功能可用", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
+		),
+		colorBgCard, 8, 12,
+	)
+
+	return container.NewVBox(cardMachine, cardActivate, cardHelp)
 }
 
 // buildLogTab 构建操作日志页
@@ -1070,7 +1085,7 @@ func (a *App) buildLogTab() fyne.CanvasObject {
 	logLabel := widget.NewLabel("操作记录:\n")
 	logLabel.Wrapping = fyne.TextWrapWord
 
-	refreshBtn := widget.NewButton("刷新日志", func() {
+	refreshBtn := NewRoundedBtn("🔄 刷新日志", colorBgTertiary, colorTextPrimary, colorBgHover, 6, func() {
 		var sb strings.Builder
 		sb.WriteString("操作记录:\n")
 		for _, r := range a.editor.Records() {

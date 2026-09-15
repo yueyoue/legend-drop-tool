@@ -35,6 +35,7 @@ var (
 
 	// 强调色
 	colorAccent     = color.NRGBA{R: 0xd4, G: 0xa8, B: 0x43, A: 0xff} // #d4a843 金色
+	colorAccentHover = color.NRGBA{R: 0xe0, G: 0xb9, B: 0x4f, A: 0xff} // #e0b94f
 	colorAccentDim  = color.NRGBA{R: 0xd4, G: 0xa8, B: 0x43, A: 0x26} // 半透明金
 	colorError      = color.NRGBA{R: 0xe0, G: 0x55, B: 0x55, A: 0xff} // #e05555
 	colorSuccess    = color.NRGBA{R: 0x4e, G: 0xcb, B: 0x71, A: 0xff} // #4ecb71
@@ -171,7 +172,38 @@ func (t *CJKTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 }
 
 func (t *CJKTheme) Size(name fyne.ThemeSizeName) float32 {
-	return theme.DefaultTheme().Size(name)
+	switch name {
+	case theme.SizeNamePadding:
+		return 6 // 默认 4 → 6，更宽松
+	case theme.SizeNameInnerPadding:
+		return 10 // 默认 8 → 10
+	case theme.SizeNameText:
+		return 13 // 默认 14 → 13，正文稍紧凑
+	case theme.SizeNameHeadingText:
+		return 20
+	case theme.SizeNameSubHeadingText:
+		return 16
+	case theme.SizeNameCaptionText:
+		return 11
+	case theme.SizeNameInputBorder:
+		return 1
+	case theme.SizeNameInputRadius:
+		return 6 // 默认 5 → 6，输入框更圆润
+	case theme.SizeNameSelectionRadius:
+		return 4
+	case theme.SizeNameScrollBar:
+		return 8 // 默认 16 → 8，滚动条更细
+	case theme.SizeNameScrollBarSmall:
+		return 4
+	case theme.SizeNameSeparatorThickness:
+		return 1
+	case theme.SizeNameInlineIcon:
+		return 20
+	case theme.SizeNameLineSpacing:
+		return 5
+	default:
+		return theme.DefaultTheme().Size(name)
+	}
 }
 
 // ── 深色色板映射 ─────────────────────────────────────────────
