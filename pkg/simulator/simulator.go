@@ -445,6 +445,12 @@ type droppedItem struct {
 	prob     float64
 }
 
+// dropCandidate 掉落候选（用于RANDOM组选择）
+type dropCandidate struct {
+	items []droppedItem
+	prob  float64
+}
+
 // rollGroups 递归roll掉落组树，返回本次击杀掉落的所有物品
 func (s *Simulator) rollGroups(tree []parser.GroupItem, mapRateMod float64) []droppedItem {
 	var result []droppedItem
@@ -474,12 +480,7 @@ func (s *Simulator) rollGroups(tree []parser.GroupItem, mapRateMod float64) []dr
 			}
 			if g.IsRandom {
 				// RANDOM模式：组内只选一个
-				// 先收集所有可能掉落的条目及其概率
-				type candidate struct {
-					items []droppedItem
-					prob  float64
-				}
-				var candidates []candidate
+				var candidates []dropCandidate
 				for _, sub := range g.Items {
 					if sub.Entry != nil {
 						e := sub.Entry
@@ -488,20 +489,18 @@ func (s *Simulator) rollGroups(tree []parser.GroupItem, mapRateMod float64) []dr
 							denominator = 1
 						}
 						prob := float64(e.ProbabilityNumerator) / denominator
-						candidates = append(candidates, candidate{
+						candidates = append(candidates, dropCandidate{
 							items: []droppedItem{{itemName: e.ItemName, quantity: e.Quantity, prob: prob}},
 							prob:  prob,
 						})
 					} else if sub.SubGroup != nil {
-						// 嵌套子组：roll子组
 						subDrops := s.rollGroups([]parser.GroupItem{sub}, mapRateMod)
 						if len(subDrops) > 0 {
-							candidates = append(candidates, candidate{items: subDrops, prob: 1.0})
+							candidates = append(candidates, dropCandidate{items: subDrops, prob: 1.0})
 						}
 					}
 				}
 				if len(candidates) > 0 {
-					// 按概率加权随机选择一个
 					idx := s.weightedSelect(candidates)
 					if idx >= 0 {
 						result = append(result, candidates[idx].items...)
@@ -518,10 +517,7 @@ func (s *Simulator) rollGroups(tree []parser.GroupItem, mapRateMod float64) []dr
 }
 
 // weightedSelect 按概率加权选择一个候选
-func (s *Simulator) weightedSelect(candidates []struct {
-	items []droppedItem
-	prob  float64
-}) int {
+func (s *Simulator) weightedSelect(candidates []dropCandidate) int {
 	totalProb := 0.0
 	for _, c := range candidates {
 		totalProb += c.prob
