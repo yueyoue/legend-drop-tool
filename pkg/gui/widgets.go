@@ -6,66 +6,30 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/widget"
 )
 
-// ── 带背景色的容器（用 canvas.Rectangle 做背景）────────────
+// ── 带背景色的容器（Stack 叠层，不用自定义 Widget）─────────
 
-// BGStack 在内容背后叠一层有颜色的矩形背景
-type BGStack struct {
-	widget.BaseWidget
-	bgColor color.Color
-	content fyne.CanvasObject
+// BGBox 在内容背后叠一层有颜色的矩形背景
+// 用 container.NewStack 实现，保证渲染可靠
+func BGBox(bgColor color.Color, content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(bgColor)
+	bg.FillColor = bgColor
+	return container.NewMax(bg, content)
 }
 
-func NewBGStack(bgColor color.Color, content fyne.CanvasObject) *BGStack {
-	s := &BGStack{bgColor: bgColor, content: content}
-	s.ExtendBaseWidget(s)
-	return s
+// BGBoxPadded 带内边距的背景容器
+func BGBoxPadded(bgColor color.Color, padding float32, content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(bgColor)
+	padded := container.NewPadded(content)
+	return container.NewStack(bg, padded)
 }
 
-func (s *BGStack) SetBGColor(c color.Color) {
-	s.bgColor = c
-	s.Refresh()
-}
+// ── 圆角按钮（保留 canvas.Rectangle.CornerRadius）──────────
 
-func (s *BGStack) CreateRenderer() fyne.WidgetRenderer {
-	bg := canvas.NewRectangle(s.bgColor)
-	return &bgStackRenderer{s: s, bg: bg, objs: []fyne.CanvasObject{bg, s.content}}
-}
-
-type bgStackRenderer struct {
-	s    *BGStack
-	bg   *canvas.Rectangle
-	objs []fyne.CanvasObject
-}
-
-func (r *bgStackRenderer) Layout(size fyne.Size) {
-	r.bg.Resize(size)
-	r.s.content.Resize(size)
-	r.s.content.Move(fyne.NewPos(0, 0))
-}
-
-func (r *bgStackRenderer) MinSize() fyne.Size {
-	return r.s.content.MinSize()
-}
-
-func (r *bgStackRenderer) Objects() []fyne.CanvasObject {
-	return r.objs
-}
-
-func (r *bgStackRenderer) Refresh() {
-	r.bg.FillColor = r.s.bgColor
-	canvas.Refresh(r.bg)
-	r.Layout(r.s.Size())
-}
-
-func (r *bgStackRenderer) Destroy() {}
-
-// ── 圆角按钮 ────────────────────────────────────────────────
-
+// RoundedBtn 圆角按钮
 type RoundedBtn struct {
-	widget.BaseWidget
+	fyne.CanvasObject
 	label      string
 	bg         *canvas.Rectangle
 	textObj    *canvas.Text
@@ -76,6 +40,7 @@ type RoundedBtn struct {
 	hovered    bool
 }
 
+// NewRoundedBtn 创建圆角按钮
 func NewRoundedBtn(label string, bgColor, textColor, hoverColor color.Color, radius float32, onTapped func()) *RoundedBtn {
 	b := &RoundedBtn{
 		label:      label,
@@ -90,80 +55,14 @@ func NewRoundedBtn(label string, bgColor, textColor, hoverColor color.Color, rad
 	b.textObj.TextStyle = fyne.TextStyle{Bold: true}
 	b.textObj.TextSize = 12
 	b.textObj.Alignment = fyne.TextAlignCenter
-	b.ExtendBaseWidget(b)
+
+	// 用 Stack 把背景和文字叠在一起，作为底层 CanvasObject
+	b.CanvasObject = container.NewStack(b.bg, b.textObj)
 	return b
 }
 
-func (b *RoundedBtn) Tapped(_ *fyne.PointEvent) {
-	if b.onTapped != nil {
-		b.onTapped()
-	}
-}
-
-func (b *RoundedBtn) MouseIn(_ *fyne.PointEvent) {
-	b.hovered = true
-	b.Refresh()
-}
-
-func (b *RoundedBtn) MouseOut() {
-	b.hovered = false
-	b.Refresh()
-}
-
-func (b *RoundedBtn) MouseMoved(_ *fyne.PointEvent) {}
-
-func (b *RoundedBtn) CreateRenderer() fyne.WidgetRenderer {
-	return &roundedBtnRenderer{btn: b, objs: []fyne.CanvasObject{b.bg, b.textObj}}
-}
-
-type roundedBtnRenderer struct {
-	btn  *RoundedBtn
-	objs []fyne.CanvasObject
-}
-
-func (r *roundedBtnRenderer) Layout(size fyne.Size) {
-	r.btn.bg.Resize(size)
-	r.btn.textObj.Resize(size)
-	pad := (size.Height - float32(r.btn.textObj.TextSize)) / 2
-	r.btn.textObj.Move(fyne.NewPos(0, pad-2))
-}
-
-func (r *roundedBtnRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(80, 30)
-}
-
-func (r *roundedBtnRenderer) Objects() []fyne.CanvasObject {
-	return r.objs
-}
-
-func (r *roundedBtnRenderer) Refresh() {
-	if r.btn.hovered {
-		r.btn.bg.FillColor = r.btn.hoverColor
-	} else {
-		r.btn.bg.FillColor = r.btn.bgColor
-	}
-	r.btn.textObj.Color = r.btn.textColor
-	canvas.Refresh(r.btn.bg)
-	canvas.Refresh(r.btn.textObj)
-	r.Layout(r.btn.Size())
-}
-
-func (r *roundedBtnRenderer) Destroy() {}
-
-// ── 辅助：快速创建带背景的 HBox/VBox ─────────────────────────
-
-func CardHBox(bgColor color.Color, padding float32, objects ...fyne.CanvasObject) fyne.CanvasObject {
-	inner := container.NewHBox(objects...)
-	if padding > 0 {
-		inner = container.NewPadded(inner)
-	}
-	return NewBGStack(bgColor, inner)
-}
-
-func CardVBox(bgColor color.Color, padding float32, objects ...fyne.CanvasObject) fyne.CanvasObject {
-	inner := container.NewVBox(objects...)
-	if padding > 0 {
-		inner = container.NewPadded(inner)
-	}
-	return NewBGStack(bgColor, inner)
+// SetText 更新按钮文字
+func (b *RoundedBtn) SetText(text string) {
+	b.textObj.Text = text
+	b.textObj.Refresh()
 }
