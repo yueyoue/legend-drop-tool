@@ -479,9 +479,9 @@ func ParseMapInfo(filePath string) (map[string]string, error) {
 		mapID := fields[0]
 		mapName := fields[1]
 
-		// 处理 newren|0139 这种带前缀的格式，取 | 后面的部分
-		if idx := strings.LastIndex(mapID, "|"); idx >= 0 {
-			mapID = mapID[idx+1:]
+		// 处理 B113A|B102 这种格式，取 | 前面的部分（MonGen.txt中使用的别名）
+		if idx := strings.Index(mapID, "|"); idx > 0 {
+			mapID = mapID[:idx]
 		}
 
 		if mapID != "" && mapName != "" {

@@ -98,6 +98,8 @@ type App struct {
 
 	// 当前选中的物品名称（用于地图→怪物的级联筛选）
 	selectedItemName string
+	pitySection      fyne.CanvasObject // 保底设置面板
+	selectedMonsterIdx int // 怪物表选中行索引
 }
 
 // New 创建并运行应用
@@ -138,11 +140,10 @@ func (a *App) buildUI() fyne.CanvasObject {
 	a.statusLabel = widget.NewLabel("就绪 - 请选择传奇服务端目录")
 	statusBar := container.NewHBox(a.statusLabel)
 
-	// 使用HSplit分割左右面板
-	split := container.NewHSplit(leftPanel, rightPanel)
-	split.SetOffset(0.25)
+	// 自定义可拖动分割条
+	divider := newDragDivider(leftPanel, rightPanel, 0.25)
 
-	return container.NewBorder(toolbar, statusBar, nil, nil, split)
+	return container.NewBorder(toolbar, statusBar, nil, nil, divider)
 }
 
 // buildToolbar 构建顶部工具栏
@@ -201,7 +202,14 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 
 	header := widget.NewLabelWithStyle("怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	scroll := container.NewVScroll(a.fileList)
-	return container.NewBorder(header, nil, nil, nil, scroll)
+	// 底部放置高级设置（保底/模拟轮数）
+	var bottomArea fyne.CanvasObject
+	if a.pitySection != nil {
+		bottomArea = a.pitySection
+	} else {
+		bottomArea = widget.NewLabel("")
+	}
+	return container.NewBorder(header, bottomArea, nil, nil, scroll)
 }
 
 // buildDetailTabs 构建右侧详情标签页
@@ -346,17 +354,25 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 			widget.NewLabel("模拟运行时间(小时):"), a.simDurationEntry,
 			widget.NewLabel("消灭怪物比例(%):"), a.simKillRatioEntry,
 		),
-		container.NewHBox(a.simPityCheck, widget.NewLabel("连续空击杀次数:"), a.simPityEntry),
-		container.NewHBox(widget.NewLabel("模拟轮数(>1显示统计):"), a.simRunCountEntry),
 	)
 
 	simBtn := widget.NewButton("模拟", a.onRunSimNew)
 	simBtn.Importance = widget.HighImportance
 
-	optionArea := container.NewGridWithColumns(4,
-		monsterSection, itemSection, mapSection,
-		container.NewVBox(otherSection, simBtn),
+	// 保底和模拟轮数设置（放在左侧面板底部）
+	pitySection := container.NewVBox(
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("高级设置", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		container.NewHBox(a.simPityCheck, widget.NewLabel("空击杀:"), a.simPityEntry),
+		container.NewHBox(widget.NewLabel("模拟轮数:"), a.simRunCountEntry),
 	)
+	a.pitySection = pitySection
+
+	optionArea := container.NewGridWithColumns(3,
+		monsterSection, itemSection, mapSection,
+	)
+	_ = otherSection
+	optionAreaWithBtn := container.NewBorder(nil, simBtn, nil, nil, container.NewVBox(optionArea, otherSection))
 
 	// === 掉落物品列表 (Table) ===
 	a.simItemSearch = widget.NewEntry()
@@ -513,6 +529,11 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	a.simMonsterTable.SetColumnWidth(0, 160)
 	a.simMonsterTable.SetColumnWidth(1, 100)
 	a.simMonsterTable.SetColumnWidth(2, 100)
+	a.simMonsterTable.OnSelected = func(id widget.TableCellID) {
+		if id.Row > 0 {
+			a.selectedMonsterIdx = id.Row - 1
+		}
+	}
 
 	// 统计摘要
 	a.simResultLabel = widget.NewLabel("")
@@ -531,6 +552,10 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	a.simMonsterSearch.OnChanged = func(q string) {
 		a.filterDisplayDataBySearch()
 	}
+	openFileBtn := widget.NewButton("打开文件", func() {
+		a.openSelectedMonsterFile()
+	})
+	monsterSearchBar := container.NewBorder(nil, nil, nil, openFileBtn, a.simMonsterSearch)
 
 	resultGrid := container.NewGridWithColumns(3,
 		container.NewBorder(
@@ -541,21 +566,21 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 			a.simMapSearch, nil, nil, a.simMapTable),
 		container.NewBorder(
 			widget.NewLabelWithStyle("掉落怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-			a.simMonsterSearch, nil, nil, a.simMonsterTable),
+			monsterSearchBar, nil, nil, a.simMonsterTable),
 	)
 
 	// 稀有物品追踪面板
 	a.simTrackerLabel = widget.NewLabel("")
 	a.simTrackerLabel.Wrapping = fyne.TextWrapWord
 	trackerScroll := container.NewVScroll(a.simTrackerLabel)
-	trackerScroll.SetMinSize(fyne.NewSize(0, 120))
+	trackerScroll.SetMinSize(fyne.NewSize(0, 80))
 	trackerPanel := container.NewBorder(
-		widget.NewLabelWithStyle("稀有物品追踪（点击物品列表中的物品查看）", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("稀有物品追踪", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
 		nil, nil, nil, trackerScroll,
 	)
 
 	return container.NewBorder(
-		container.NewVBox(optionArea, widget.NewSeparator()),
+		container.NewVBox(optionAreaWithBtn, widget.NewSeparator()),
 		container.NewVBox(widget.NewSeparator(), summaryBar),
 		nil, nil,
 		container.NewVSplit(resultGrid, trackerPanel),
@@ -777,6 +802,31 @@ func (a *App) onMapSelected(row int) {
 	}
 	a.simMonsterTable.Refresh()
 	a.statusLabel.SetText(fmt.Sprintf("已选中地图: %s | 怪物:%d个", selectedMapDisplay, a.monDisplayCount))
+}
+
+// openSelectedMonsterFile 打开选中怪物的爆率文件
+func (a *App) openSelectedMonsterFile() {
+	if a.currentResults == nil {
+		return
+	}
+	idx := a.selectedMonsterIdx
+	if idx < 0 || idx >= a.monDisplayCount || idx >= len(a.monDisplayData) || a.monDisplayData[idx] == nil {
+		dialog.ShowInformation("提示", "请先在怪物列表中选择一个怪物", a.mainWindow)
+		return
+	}
+	monsterName := a.monDisplayData[idx].MonsterName
+
+	// 在已加载的结果中查找对应的文件
+	for i, r := range a.currentResults {
+		if r.File.MonsterName == monsterName {
+			a.selectedFileIdx = i
+			a.fileList.Select(i)
+			a.updateDetailPanel()
+			a.statusLabel.SetText(fmt.Sprintf("已打开怪物文件: %s", monsterName))
+			return
+		}
+	}
+	dialog.ShowInformation("提示", fmt.Sprintf("未找到怪物 [%s] 的爆率文件", monsterName), a.mainWindow)
 }
 
 // updateTrackerPanel 更新稀有物品追踪面板
@@ -1610,3 +1660,86 @@ func (a *App) updateDetailPanel() {
 		a.detailTable.Refresh()
 	}
 }
+
+// dragDivider 自定义可拖动分割条容器
+type dragDivider struct {
+	widget.BaseWidget
+	left, right fyne.CanvasObject
+	offset      float64 // 0.0 ~ 1.0
+	dragging    bool
+}
+
+func newDragDivider(left, right fyne.CanvasObject, offset float64) *dragDivider {
+	d := &dragDivider{left: left, right: right, offset: offset}
+	d.ExtendBaseWidget(d)
+	return d
+}
+
+func (d *dragDivider) CreateRenderer() fyne.WidgetRenderer {
+	separator := widget.NewSeparator()
+	separator.Resize(fyne.NewSize(4, 0))
+	return &dragDividerRenderer{divider: d, separator: separator}
+}
+
+func (d *dragDivider) Dragged(ev *fyne.DragEvent) {
+	d.dragging = true
+	size := d.Size()
+	if size.Width > 0 {
+		newOffset := float64(ev.Position.X) / float64(size.Width)
+		if newOffset < 0.1 {
+			newOffset = 0.1
+		}
+		if newOffset > 0.9 {
+			newOffset = 0.9
+		}
+		d.offset = newOffset
+		d.Refresh()
+	}
+}
+
+func (d *dragDivider) DragEnd() {
+	d.dragging = false
+}
+
+type dragDividerRenderer struct {
+	divider   *dragDivider
+	separator *widget.Separator
+}
+
+func (r *dragDividerRenderer) Layout(size fyne.Size) {
+	sepWidth := float32(4)
+	leftWidth := float32(float64(size.Width)*r.divider.offset) - sepWidth/2
+	if leftWidth < 0 {
+		leftWidth = 0
+	}
+	rightWidth := size.Width - leftWidth - sepWidth
+	if rightWidth < 0 {
+		rightWidth = 0
+	}
+
+	r.divider.left.Move(fyne.NewPos(0, 0))
+	r.divider.left.Resize(fyne.NewSize(leftWidth, size.Height))
+
+	r.separator.Move(fyne.NewPos(leftWidth, 0))
+	r.separator.Resize(fyne.NewSize(sepWidth, size.Height))
+
+	r.divider.right.Move(fyne.NewPos(leftWidth+sepWidth, 0))
+	r.divider.right.Resize(fyne.NewSize(rightWidth, size.Height))
+}
+
+func (r *dragDividerRenderer) MinSize() fyne.Size {
+	leftMin := r.divider.left.MinSize()
+	rightMin := r.divider.right.MinSize()
+	return fyne.NewSize(leftMin.Width+rightMin.Width+4,
+		fyne.Max(leftMin.Height, rightMin.Height))
+}
+
+func (r *dragDividerRenderer) Refresh() {
+	r.Layout(r.divider.Size())
+}
+
+func (r *dragDividerRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.divider.left, r.separator, r.divider.right}
+}
+
+func (r *dragDividerRenderer) Destroy() {}
