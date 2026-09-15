@@ -339,6 +339,7 @@ func (s *Simulator) runSingleSimulation(
 	monsterAgg := make(map[string]*MonsterStat)
 	itemMonsterDrops := make(map[string]map[string]int64)
 	itemMapDrops := make(map[string]map[string]int64)
+	itemMonsterMapDrops := make(map[string]map[string]map[string]int64)
 
 	// 保底计数器：连续空击杀次数
 	var pityCounter int
@@ -370,7 +371,7 @@ func (s *Simulator) runSingleSimulation(
 		// 逐次模拟击杀
 		for i := int64(0); i < kills; i++ {
 			dropped := s.simulateKill(tree, itemAgg, mapAgg, monsterAgg,
-				itemMonsterDrops, itemMapDrops, monsterName, mapName, config)
+				itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, monsterName, mapName, config)
 
 			if dropped {
 				pityCounter = 0
@@ -413,6 +414,7 @@ func (s *Simulator) runSingleSimulation(
 	result.TotalEmpty = result.TotalKills - s.countNonEmptyKills(result)
 	result.ItemMonsterDrops = itemMonsterDrops
 	result.ItemMapDrops = itemMapDrops
+	result.ItemMonsterMapDrops = itemMonsterMapDrops
 	return result
 }
 
@@ -424,6 +426,7 @@ func (s *Simulator) simulateKill(
 	monsterAgg map[string]*MonsterStat,
 	itemMonsterDrops map[string]map[string]int64,
 	itemMapDrops map[string]map[string]int64,
+	itemMonsterMapDrops map[string]map[string]map[string]int64,
 	monsterName, mapName string,
 	config SimConfig,
 ) bool {
@@ -433,7 +436,7 @@ func (s *Simulator) simulateKill(
 		dropped = true
 		s.recordDrop(di.itemName, di.quantity, di.prob,
 			itemAgg, mapAgg, monsterAgg,
-			itemMonsterDrops, itemMapDrops,
+			itemMonsterDrops, itemMapDrops, itemMonsterMapDrops,
 			monsterName, mapName)
 	}
 	return dropped
