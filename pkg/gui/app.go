@@ -26,7 +26,7 @@ import (
 //go:embed icon.png
 var iconData []byte
 
-const appTitle = "传奇爆率模拟与修改工具 v1.0.6"
+const appTitle = "传奇爆率模拟与修改工具 v1.0.9"
 
 // App 主应用
 type App struct {
