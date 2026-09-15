@@ -109,11 +109,18 @@ type App struct {
 
 // New 创建并运行应用
 func New() {
+	cfg, _ := config.Load()
+
 	a := app.New()
 	if len(iconData) > 0 {
 		a.SetIcon(fyne.NewStaticResource("icon.png", iconData))
 	}
-	customTheme := NewCJKTheme()
+	// 根据配置设置主题变体
+	themeVariant := fyne.ThemeDark
+	if cfg.Theme == "light" {
+		themeVariant = fyne.ThemeLight
+	}
+	customTheme := NewCJKTheme(themeVariant)
 	a.Settings().SetTheme(customTheme)
 
 	w := a.NewWindow(appTitle)
@@ -122,7 +129,6 @@ func New() {
 		w.SetIcon(fyne.NewStaticResource("icon.png", iconData))
 	}
 
-	cfg, _ := config.Load()
 	gui := &App{
 		fyneApp:         a,
 		mainWindow:      w,

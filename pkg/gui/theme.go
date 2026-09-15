@@ -17,13 +17,19 @@ import (
 type CJKTheme struct {
 	regularFont fyne.Resource
 	boldFont    fyne.Resource
+	variant     fyne.ThemeVariant // 主题变体: ThemeDark 或 ThemeLight
 }
 
-// NewCJKTheme 创建支持中文的主题
-func NewCJKTheme() *CJKTheme {
-	t := &CJKTheme{}
+// NewCJKTheme 创建支持中文的主题（默认深色）
+func NewCJKTheme(variant fyne.ThemeVariant) *CJKTheme {
+	t := &CJKTheme{variant: variant}
 	t.loadFont()
 	return t
+}
+
+// SetVariant 动态切换主题变体
+func (t *CJKTheme) SetVariant(variant fyne.ThemeVariant) {
+	t.variant = variant
 }
 
 // loadFont 加载中文字体，优先使用嵌入字体，其次本地文件，最后系统字体
@@ -104,7 +110,8 @@ func (t *CJKTheme) Font(style fyne.TextStyle) fyne.Resource {
 }
 
 func (t *CJKTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	return theme.DefaultTheme().Color(name, variant)
+	// 强制使用配置的主题变体，忽略系统设置
+	return theme.DefaultTheme().Color(name, t.variant)
 }
 
 func (t *CJKTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
