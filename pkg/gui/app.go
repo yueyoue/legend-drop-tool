@@ -100,6 +100,11 @@ type App struct {
 	selectedItemName string
 	pitySection      fyne.CanvasObject // 保底设置面板
 	selectedMonsterIdx int // 怪物表选中行索引
+
+	// 布局切换
+	mainStack     *fyne.Container
+	splitLayout   fyne.CanvasObject
+	simFullWidth  fyne.CanvasObject
 }
 
 // New 创建并运行应用
@@ -140,10 +145,20 @@ func (a *App) buildUI() fyne.CanvasObject {
 	a.statusLabel = widget.NewLabel("就绪 - 请选择传奇服务端目录")
 	statusBar := container.NewHBox(a.statusLabel)
 
-	// 自定义可拖动分割条
-	divider := newDragDivider(leftPanel, rightPanel, 0.25)
+	// 可拖动分割条（爆率修改等页面使用）
+	splitLayout := newDragDivider(leftPanel, rightPanel, 0.25)
 
-	return container.NewBorder(toolbar, statusBar, nil, nil, divider)
+	// 爆率模拟页面全宽布局（不含左侧怪物列表）
+	simFullWidth := a.buildSimTabFull()
+
+	// Stack 容器用于切换布局
+	mainStack := container.NewStack(splitLayout, simFullWidth)
+	simFullWidth.Hide()
+	a.mainStack = mainStack
+	a.splitLayout = splitLayout
+	a.simFullWidth = simFullWidth
+
+	return container.NewBorder(toolbar, statusBar, nil, nil, mainStack)
 }
 
 // buildToolbar 构建顶部工具栏
@@ -202,14 +217,7 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 
 	header := widget.NewLabelWithStyle("怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	scroll := container.NewVScroll(a.fileList)
-	// 底部放置高级设置（保底/模拟轮数）
-	var bottomArea fyne.CanvasObject
-	if a.pitySection != nil {
-		bottomArea = a.pitySection
-	} else {
-		bottomArea = widget.NewLabel("")
-	}
-	return container.NewBorder(header, bottomArea, nil, nil, scroll)
+	return container.NewBorder(header, nil, nil, nil, scroll)
 }
 
 // buildDetailTabs 构建右侧详情标签页
@@ -226,6 +234,21 @@ func (a *App) buildDetailTabs() fyne.CanvasObject {
 		container.NewTabItem("授权管理", authTab),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
+
+	// 切换Tab时控制布局：爆率模拟页面隐藏左侧怪物列表
+	tabs.OnChanged = func(tab *container.TabItem) {
+		if a.mainStack == nil {
+			return
+		}
+		if tab.Text == "爆率模拟" {
+			a.splitLayout.Hide()
+			a.simFullWidth.Show()
+		} else {
+			a.simFullWidth.Hide()
+			a.splitLayout.Show()
+		}
+	}
+
 	return tabs
 }
 
@@ -303,76 +326,101 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 }
 
 // buildSimTab 构建爆率模拟页
+// buildSimTab 构建爆率模拟页（占位，实际使用 buildSimTabFull）
 func (a *App) buildSimTab() fyne.CanvasObject {
-	// === 怪物选择区 ===
+	return widget.NewLabel("")
+}
+
+// buildSimTabFull 构建爆率模拟页全宽布局（无左侧怪物列表）
+func (a *App) buildSimTabFull() fyne.CanvasObject {
+	// === Row 1: 筛选条件（怪物/物品/地图） ===
+
+	// 怪物选择
 	a.simMonsterRadio = widget.NewRadioGroup([]string{"所有怪物", "指定怪物"}, nil)
 	a.simMonsterRadio.SetSelected("所有怪物")
 	a.simMonsterRadio.Horizontal = true
 	a.simMonsterCount = widget.NewLabel("(0)")
 	monsterSetBtn := widget.NewButton("指定怪物设置", func() { a.showMonsterPicker() })
+	monsterSetBtn.Hidden = true
+	a.simMonsterRadio.OnChanged = func(val string) {
+		if val == "指定怪物" {
+			monsterSetBtn.Hidden = false
+		} else {
+			monsterSetBtn.Hidden = true
+		}
+		monsterSetBtn.Refresh()
+	}
 	monsterSection := container.NewVBox(
 		widget.NewLabelWithStyle("怪物", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		container.NewHBox(a.simMonsterRadio, a.simMonsterCount, monsterSetBtn),
 	)
 
-	// === 物品选择区 ===
+	// 物品选择
 	a.simItemRadio = widget.NewRadioGroup([]string{"所有物品", "指定物品"}, nil)
 	a.simItemRadio.SetSelected("所有物品")
 	a.simItemRadio.Horizontal = true
 	a.simItemCount = widget.NewLabel("(0)")
 	itemSetBtn := widget.NewButton("指定物品设置", func() { a.showItemPicker() })
+	itemSetBtn.Hidden = true
+	a.simItemRadio.OnChanged = func(val string) {
+		if val == "指定物品" {
+			itemSetBtn.Hidden = false
+		} else {
+			itemSetBtn.Hidden = true
+		}
+		itemSetBtn.Refresh()
+	}
 	itemSection := container.NewVBox(
 		widget.NewLabelWithStyle("物品", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		container.NewHBox(a.simItemRadio, a.simItemCount, itemSetBtn),
 	)
 
-	// === 地图选择区 ===
+	// 地图选择
 	a.simMapRadio = widget.NewRadioGroup([]string{"所有地图", "指定地图"}, nil)
 	a.simMapRadio.SetSelected("所有地图")
 	a.simMapRadio.Horizontal = true
 	a.simMapCount = widget.NewLabel("(0)")
 	mapSetBtn := widget.NewButton("指定地图设置", func() { a.showMapPicker() })
+	mapSetBtn.Hidden = true
+	a.simMapRadio.OnChanged = func(val string) {
+		if val == "指定地图" {
+			mapSetBtn.Hidden = false
+		} else {
+			mapSetBtn.Hidden = true
+		}
+		mapSetBtn.Refresh()
+	}
 	mapSection := container.NewVBox(
-		widget.NewLabelWithStyle("指定地图", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("地图", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		container.NewHBox(a.simMapRadio, a.simMapCount, mapSetBtn),
 	)
 
-	// === 其它选项 ===
+	filterRow := container.NewGridWithColumns(3, monsterSection, itemSection, mapSection)
+
+	// === Row 2: 模拟参数 ===
 	a.simDurationEntry = widget.NewEntry()
 	a.simDurationEntry.SetText("24")
 	a.simKillRatioEntry = widget.NewEntry()
 	a.simKillRatioEntry.SetText("50")
-	a.simPityCheck = widget.NewCheck("启用保底", nil)
+	a.simPityCheck = widget.NewCheck("保底", nil)
 	a.simPityEntry = widget.NewEntry()
 	a.simPityEntry.SetText("100")
 	a.simRunCountEntry = widget.NewEntry()
 	a.simRunCountEntry.SetText("1")
 
-	otherSection := container.NewVBox(
-		widget.NewLabelWithStyle("其它选项", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		container.NewGridWithColumns(2,
-			widget.NewLabel("模拟运行时间(小时):"), a.simDurationEntry,
-			widget.NewLabel("消灭怪物比例(%):"), a.simKillRatioEntry,
-		),
-	)
-
-	simBtn := widget.NewButton("模拟", a.onRunSimNew)
+	simBtn := widget.NewButton("▶ 开始模拟", a.onRunSimNew)
 	simBtn.Importance = widget.HighImportance
 
-	// 保底和模拟轮数设置（放在左侧面板底部）
-	pitySection := container.NewVBox(
-		widget.NewSeparator(),
-		widget.NewLabelWithStyle("高级设置", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		container.NewHBox(a.simPityCheck, widget.NewLabel("空击杀:"), a.simPityEntry),
-		container.NewHBox(widget.NewLabel("模拟轮数:"), a.simRunCountEntry),
+	paramRow := container.NewHBox(
+		widget.NewLabel("模拟时长(h):"), a.simDurationEntry,
+		widget.NewLabel("消灭比例(%):"), a.simKillRatioEntry,
+		a.simPityCheck, widget.NewLabel("连续空击杀:"), a.simPityEntry,
+		widget.NewLabel("模拟轮数:"), a.simRunCountEntry,
+		layout.NewSpacer(),
+		simBtn,
 	)
-	a.pitySection = pitySection
 
-	optionArea := container.NewGridWithColumns(3,
-		monsterSection, itemSection, mapSection,
-	)
-	_ = otherSection
-	optionAreaWithBtn := container.NewBorder(nil, simBtn, nil, nil, container.NewVBox(optionArea, otherSection))
+	configArea := container.NewVBox(filterRow, paramRow, widget.NewSeparator())
 
 	// === 掉落物品列表 (Table) ===
 	a.simItemSearch = widget.NewEntry()
@@ -424,7 +472,6 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	a.simItemTable.SetColumnWidth(1, 120)
 	a.simItemTable.OnSelected = func(id widget.TableCellID) {
 		if id.Row > 0 && id.Row-1 < len(a.filteredItemStats) {
-			// 找到原始数据中的索引
 			selectedItem := a.filteredItemStats[id.Row-1]
 			for i, item := range a.simResult.ItemStats {
 				if item == selectedItem {
@@ -580,7 +627,7 @@ func (a *App) buildSimTab() fyne.CanvasObject {
 	)
 
 	return container.NewBorder(
-		container.NewVBox(optionAreaWithBtn, widget.NewSeparator()),
+		configArea,
 		container.NewVBox(widget.NewSeparator(), summaryBar),
 		nil, nil,
 		container.NewVSplit(resultGrid, trackerPanel),
