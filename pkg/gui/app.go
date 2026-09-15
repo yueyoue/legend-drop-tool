@@ -151,7 +151,7 @@ func (a *App) buildUI() fyne.CanvasObject {
 	leftPanel := a.buildFileListPanel()
 	rightPanel := a.buildDetailTabs()
 	a.statusLabel = widget.NewLabel("就绪 - 请选择传奇服务端目录")
-	statusBar := NewCard(container.NewHBox(a.statusLabel), colorBgSecondary, 0, 6)
+	statusBar := NewBGStack(colorBgSecondary, container.NewHBox(a.statusLabel))
 
 	// 可拖动分割条（爆率修改等页面使用）
 	splitLayout := newDragDivider(leftPanel, rightPanel, 0.25)
@@ -188,10 +188,7 @@ func (a *App) buildToolbar() fyne.CanvasObject {
 	row1 := container.NewBorder(nil, nil, widget.NewLabel("服务端目录:"), browseBtn, a.serverPathEntry)
 	row2 := container.NewBorder(nil, nil, widget.NewLabel("引擎类型:"), container.NewHBox(autoDetectBtn, loadBtn), a.engineSelect)
 
-	return NewCard(
-		container.NewVBox(row1, row2),
-		colorBgSecondary, 0, 10,
-	)
+	return NewBGStack(colorBgSecondary, container.NewVBox(row1, row2))
 }
 
 // buildFileListPanel 构建左侧文件列表
@@ -227,7 +224,7 @@ func (a *App) buildFileListPanel() fyne.CanvasObject {
 
 	header := widget.NewLabelWithStyle("👹 怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	scroll := container.NewVScroll(a.fileList)
-	return container.NewBorder(NewCard(header, colorBgTertiary, 0, 8), nil, nil, nil, scroll)
+	return container.NewBorder(NewBGStack(colorBgTertiary, header), nil, nil, nil, scroll)
 }
 
 // buildDetailTabs 构建右侧详情标签页
@@ -332,7 +329,7 @@ func (a *App) buildEditTab() fyne.CanvasObject {
 	saveBtn := NewRoundedBtn("💾 保存", colorAccent, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, colorAccentHover, 6, a.onSaveFile)
 
 	btnBar := container.NewHBox(addBtn, mulBtn, batchSetBtn, detectBtn, backupBtn, backupAllBtn, layout.NewSpacer(), saveBtn)
-	return container.NewBorder(nil, NewCard(btnBar, colorBgSecondary, 0, 6), nil, nil, a.detailTable)
+	return container.NewBorder(nil, NewBGStack(colorBgSecondary, btnBar), nil, nil, a.detailTable)
 }
 
 // buildSimTab 构建爆率模拟页
@@ -430,8 +427,8 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	)
 
 	configArea := container.NewVBox(
-		NewCard(filterRow, colorBgSecondary, 0, 10),
-		NewCard(paramRow, colorBgSecondary, 0, 8),
+		NewBGStack(colorBgSecondary, filterRow),
+		NewBGStack(colorBgSecondary, paramRow),
 	)
 
 	// === 掉落物品列表 (Table) ===
@@ -598,7 +595,7 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	a.simResultLabel = widget.NewLabel("")
 	a.simResultLabel.Wrapping = fyne.TextWrapWord
 	exportBtn := NewRoundedBtn("📤 导出结果", colorBgTertiary, colorTextPrimary, colorBgHover, 6, a.onExportSimResult)
-	summaryBar := NewCard(container.NewBorder(nil, nil, nil, exportBtn, a.simResultLabel), colorBgSecondary, 0, 8)
+	summaryBar := NewBGStack(colorBgSecondary, container.NewBorder(nil, nil, nil, exportBtn, a.simResultLabel))
 
 	// 三列结果（带搜索）
 	a.simMapSearch = widget.NewEntry()
@@ -1053,28 +1050,25 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 	helpText := widget.NewLabel("1. 复制本机机器码\n2. 联系管理员获取激活码\n3. 输入激活码完成绑定\n4. 一机一码，绑定后不可随意更换设备")
 	helpText.Wrapping = fyne.TextWrapWord
 
-	cardMachine := NewCard(
-		container.NewVBox(
+	cardMachine := NewBGStack(colorBgCard,
+		container.NewPadded(container.NewVBox(
 			widget.NewLabelWithStyle("💻 设备信息", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			container.NewBorder(nil, nil, nil, copyBtn, machineLabel),
-		),
-		colorBgCard, 8, 12,
+		)),
 	)
-	cardActivate := NewCard(
-		container.NewVBox(
+	cardActivate := NewBGStack(colorBgCard,
+		container.NewPadded(container.NewVBox(
 			widget.NewLabelWithStyle("🔑 授权状态", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			statusLabel,
 			container.NewBorder(nil, nil, nil, activateBtn, activateEntry),
-		),
-		colorBgCard, 8, 12,
+		)),
 	)
-	cardHelp := NewCard(
-		container.NewVBox(
+	cardHelp := NewBGStack(colorBgCard,
+		container.NewPadded(container.NewVBox(
 			widget.NewLabelWithStyle("📖 授权说明", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			helpText,
 			widget.NewLabelWithStyle("当前为开发模式，所有功能可用", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
-		),
-		colorBgCard, 8, 12,
+		)),
 	)
 
 	return container.NewVBox(cardMachine, cardActivate, cardHelp)
