@@ -736,23 +736,13 @@ func (a *App) onMapSelected(row int) {
 	// 筛选该地图的怪物
 	a.filteredMonStats = nil
 
-	if selectedItemName != "" && a.simResult.ItemMonsterDrops[selectedItemName] != nil {
-		// 物品筛选模式：使用物品级别的怪物掉落数
-		monsterDrops := a.simResult.ItemMonsterDrops[selectedItemName]
-		for monsterName, dropCnt := range monsterDrops {
-			// 检查该怪物是否在选中的地图上
-			isOnMap := false
-			if a.monGenEntries != nil {
-				for _, mg := range a.monGenEntries {
-					if mg.MonsterName == monsterName && mg.MapName == selectedMapID {
-						isOnMap = true
-						break
-					}
-				}
-			} else {
-				isOnMap = true
-			}
-			if !isOnMap {
+	if selectedItemName != "" && a.simResult.ItemMonsterMapDrops[selectedItemName] != nil {
+		// 物品筛选模式：使用物品→怪物→地图级别的掉落数
+		monsterMapDrops := a.simResult.ItemMonsterMapDrops[selectedItemName]
+		for monsterName, mapDrops := range monsterMapDrops {
+			// 取该怪物在选中地图上的掉落数
+			dropCnt, hasDrop := mapDrops[selectedMapID]
+			if !hasDrop {
 				continue
 			}
 			var killCnt int64

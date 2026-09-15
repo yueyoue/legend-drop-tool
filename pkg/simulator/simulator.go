@@ -95,9 +95,10 @@ type SimResult struct {
 	PityTriggered int64 // 保底触发次数
 	Duration     time.Duration
 
-	ItemMonsterDrops map[string]map[string]int64
-	ItemMapDrops     map[string]map[string]int64
-	ItemTrackers     map[string]*ItemDropTracker // 物品掉落追踪
+	ItemMonsterDrops    map[string]map[string]int64
+	ItemMapDrops        map[string]map[string]int64
+	ItemTrackers        map[string]*ItemDropTracker // 物品掉落追踪
+	ItemMonsterMapDrops map[string]map[string]map[string]int64 // [物品][怪物][地图]掉落数
 }
 
 // DropRate 返回总掉落率
@@ -379,7 +380,7 @@ func (s *Simulator) runSingleSimulation(
 				if config.PityEnabled && pityCounter >= config.PityThreshold {
 					// 保底：强制掉落一个可掉落的物品
 					if s.pityDrop(tree, pityItemSet, itemAgg, mapAgg, monsterAgg,
-						itemMonsterDrops, itemMapDrops, monsterName, mapName) {
+						itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, monsterName, mapName) {
 						pityCounter = 0
 					}
 				}
@@ -544,6 +545,7 @@ func (s *Simulator) recordDrop(
 	monsterAgg map[string]*MonsterStat,
 	itemMonsterDrops map[string]map[string]int64,
 	itemMapDrops map[string]map[string]int64,
+	itemMonsterMapDrops map[string]map[string]map[string]int64,
 	monsterName, mapName string,
 ) {
 	if itemAgg[itemName] == nil {
@@ -569,6 +571,15 @@ func (s *Simulator) recordDrop(
 	}
 	itemMapDrops[itemName][mapName]++
 
+	// 物品→怪物→地图掉落数跟踪
+	if itemMonsterMapDrops[itemName] == nil {
+		itemMonsterMapDrops[itemName] = make(map[string]map[string]int64)
+	}
+	if itemMonsterMapDrops[itemName][monsterName] == nil {
+		itemMonsterMapDrops[itemName][monsterName] = make(map[string]int64)
+	}
+	itemMonsterMapDrops[itemName][monsterName][mapName]++
+
 	monsterAgg[monsterName].DropCount++
 	if mapAgg[mapName] != nil {
 		mapAgg[mapName].DropCount++
@@ -584,6 +595,7 @@ func (s *Simulator) pityDrop(
 	monsterAgg map[string]*MonsterStat,
 	itemMonsterDrops map[string]map[string]int64,
 	itemMapDrops map[string]map[string]int64,
+	itemMonsterMapDrops map[string]map[string]map[string]int64,
 	monsterName, mapName string,
 ) bool {
 	// 收集所有可掉落的物品名
@@ -610,7 +622,7 @@ func (s *Simulator) pityDrop(
 	}
 
 	s.recordDrop(target, 1, 0, itemAgg, mapAgg, monsterAgg,
-		itemMonsterDrops, itemMapDrops, monsterName, mapName)
+		itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, monsterName, mapName)
 	return true
 }
 
@@ -905,6 +917,7 @@ func (s *Simulator) runSingleSimulationWithTracker(
 	monsterAgg := make(map[string]*MonsterStat)
 	itemMonsterDrops := make(map[string]map[string]int64)
 	itemMapDrops := make(map[string]map[string]int64)
+	itemMonsterMapDrops := make(map[string]map[string]map[string]int64)
 	trackers := make(map[string]*ItemDropTracker)
 
 	// 全局击杀序号（用于追踪）
@@ -945,7 +958,7 @@ func (s *Simulator) runSingleSimulationWithTracker(
 						s.recordDropWithTracker(si.itemName, si.quantity, si.prob,
 							globalKillIdx+int64(float64(d)*float64(kills)/float64(dropCount)),
 							itemAgg, mapAgg, monsterAgg,
-							itemMonsterDrops, itemMapDrops, trackers,
+							itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, trackers,
 							monsterName, mapName)
 					}
 				}
@@ -956,7 +969,7 @@ func (s *Simulator) runSingleSimulationWithTracker(
 			for i := int64(0); i < kills; i++ {
 				dropped := s.simulateKillWithTracker(tree, globalKillIdx,
 					itemAgg, mapAgg, monsterAgg,
-					itemMonsterDrops, itemMapDrops, trackers,
+					itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, trackers,
 					monsterName, mapName, config)
 
 				if dropped {
@@ -965,7 +978,7 @@ func (s *Simulator) runSingleSimulationWithTracker(
 					pityCounter++
 					if config.PityEnabled && pityCounter >= config.PityThreshold {
 						if s.pityDrop(tree, pityItemSet, itemAgg, mapAgg, monsterAgg,
-							itemMonsterDrops, itemMapDrops, monsterName, mapName) {
+							itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, monsterName, mapName) {
 							pityCounter = 0
 						}
 					}
@@ -1000,6 +1013,7 @@ func (s *Simulator) runSingleSimulationWithTracker(
 	result.TotalEmpty = result.TotalKills - s.countNonEmptyKills(result)
 	result.ItemMonsterDrops = itemMonsterDrops
 	result.ItemMapDrops = itemMapDrops
+	result.ItemMonsterMapDrops = itemMonsterMapDrops
 
 	// 完成追踪统计
 	for _, t := range trackers {
@@ -1024,6 +1038,7 @@ func (s *Simulator) simulateKillWithTracker(
 	monsterAgg map[string]*MonsterStat,
 	itemMonsterDrops map[string]map[string]int64,
 	itemMapDrops map[string]map[string]int64,
+	itemMonsterMapDrops map[string]map[string]map[string]int64,
 	trackers map[string]*ItemDropTracker,
 	monsterName, mapName string,
 	config SimConfig,
@@ -1034,7 +1049,7 @@ func (s *Simulator) simulateKillWithTracker(
 		dropped = true
 		s.recordDropWithTracker(di.itemName, di.quantity, di.prob, killIdx,
 			itemAgg, mapAgg, monsterAgg,
-			itemMonsterDrops, itemMapDrops, trackers,
+			itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, trackers,
 			monsterName, mapName)
 	}
 	return dropped
@@ -1048,12 +1063,13 @@ func (s *Simulator) recordDropWithTracker(
 	monsterAgg map[string]*MonsterStat,
 	itemMonsterDrops map[string]map[string]int64,
 	itemMapDrops map[string]map[string]int64,
+	itemMonsterMapDrops map[string]map[string]map[string]int64,
 	trackers map[string]*ItemDropTracker,
 	monsterName, mapName string,
 ) {
 	// 基础统计
 	s.recordDrop(itemName, quantity, prob, itemAgg, mapAgg, monsterAgg,
-		itemMonsterDrops, itemMapDrops, monsterName, mapName)
+		itemMonsterDrops, itemMapDrops, itemMonsterMapDrops, monsterName, mapName)
 
 	// 追踪器
 	t, exists := trackers[itemName]
