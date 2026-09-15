@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/yueyoue/legend-drop-tool/pkg/auth"
@@ -116,9 +117,9 @@ func New() {
 		a.SetIcon(fyne.NewStaticResource("icon.png", iconData))
 	}
 	// 根据配置设置主题变体
-	themeVariant := fyne.ThemeDark
+	themeVariant := theme.VariantDark
 	if cfg.Theme == "light" {
-		themeVariant = fyne.ThemeLight
+		themeVariant = theme.VariantLight
 	}
 	customTheme := NewCJKTheme(themeVariant)
 	a.Settings().SetTheme(customTheme)
