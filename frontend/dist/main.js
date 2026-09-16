@@ -12,7 +12,30 @@ const $ = id => document.getElementById(id);
 const $$ = sel => document.querySelectorAll(sel);
 
 // ===== 初始化 =====
-window.addEventListener('DOMContentLoaded', () => {
+// 等待 Wails 绑定就绪（window.go 可能由运行时异步注入）
+function waitForWailsReady(maxWaitMs = 5000) {
+  return new Promise((resolve, reject) => {
+    if (window.go && window.go.main && window.go.main.App) return resolve();
+    const start = Date.now();
+    const timer = setInterval(() => {
+      if (window.go && window.go.main && window.go.main.App) {
+        clearInterval(timer);
+        resolve();
+      } else if (Date.now() - start > maxWaitMs) {
+        clearInterval(timer);
+        reject(new Error('Wails 绑定加载超时'));
+      }
+    }, 50);
+  });
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    await waitForWailsReady();
+  } catch(e) {
+    setStatus('错误: ' + e.message + ' — 请确认使用最新版 exe');
+    return;
+  }
   initTabs();
   initToolbar();
   initEditTab();
