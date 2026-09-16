@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/yueyoue/legend-drop-tool/pkg/auth"
 	"github.com/yueyoue/legend-drop-tool/pkg/backup"
 	"github.com/yueyoue/legend-drop-tool/pkg/config"
@@ -631,9 +632,69 @@ func (a *App) GetAllItemNames() []string {
 	return names
 }
 
+// GetAllMapNames 获取所有地图名称（用于筛选器）
+func (a *App) GetAllMapNames() []string {
+	if a.monGenEntries == nil && a.currentResults == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var names []string
+
+	// 从 MonGen 提取地图名
+	for _, e := range a.monGenEntries {
+		mapName := strings.TrimSpace(e.MapName)
+		if mapName != "" && !seen[mapName] {
+			seen[mapName] = true
+			displayName := mapName
+			if a.mapInfoLookup != nil {
+				if desc, ok := a.mapInfoLookup[mapName]; ok && desc != "" {
+					displayName = mapName + " (" + desc + ")"
+				}
+			}
+			names = append(names, displayName)
+		}
+	}
+
+	// 如果 MonGen 没数据，从怪物掉落文件名推断
+	if len(names) == 0 {
+		for _, r := range a.currentResults {
+			mapName := r.File.MonsterName
+			if !seen[mapName] {
+				seen[mapName] = true
+				names = append(names, mapName)
+			}
+		}
+	}
+
+	sort.Strings(names)
+	return names
+}
+
 // ============================================================
 // 文件对话框（Wails 前端调用）
 // ============================================================
+
+// SelectDirectory 打开系统目录选择对话框
+func (a *App) SelectDirectory() (string, error) {
+	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.DialogOptions{
+		Title: "选择传奇服务端根目录",
+	})
+	if err != nil {
+		return "", fmt.Errorf("打开目录对话框失败: %v", err)
+	}
+	return path, nil
+}
+
+// SelectFile 打开系统文件选择对话框
+func (a *App) SelectFile(title string) (string, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.DialogOptions{
+		Title: title,
+	})
+	if err != nil {
+		return "", fmt.Errorf("打开文件对话框失败: %v", err)
+	}
+	return path, nil
+}
 
 // FormatEntryDisplay 格式化条目显示文本
 func (a *App) FormatEntryDisplay(monsterIndex int) []string {

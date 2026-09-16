@@ -46,13 +46,10 @@ function initTabs() {
 
 // ===== 工具栏 =====
 function initToolbar() {
-  // 浏览按钮 - 用 Wails runtime 打开系统文件夹选择对话框
+  // 浏览按钮 - 通过 Go 后端打开系统目录选择对话框
   $('btnBrowse').onclick = async () => {
     try {
-      const result = await window.runtime.OpenDirectoryDialog({
-        Title: '选择传奇服务端根目录',
-        DefaultDirectory: $('serverPath').value || ''
-      });
+      const result = await window.go.main.App.SelectDirectory();
       if (result) {
         $('serverPath').value = result;
         await window.go.main.App.SetServerPath(result);
@@ -245,14 +242,31 @@ function showEditDialog(idx, entry) {
   ]);
 }
 
+// ===== 筛选状态 =====
+let filterMonsters = [];
+let filterItems = [];
+let filterMaps = [];
+
 // ===== 模拟 =====
 function initSimTab() {
-  // Radio 切换
+  // Radio 切换 + 指定选择弹窗
   $$('.radio').forEach(el => {
-    el.onclick = () => {
+    el.onclick = async () => {
       const group = el.dataset.group;
+      const val = el.dataset.val;
       $$(`.radio[data-group="${group}"]`).forEach(r => r.classList.remove('selected'));
       el.classList.add('selected');
+
+      // 点击"指定xxx"时弹出多选列表
+      if (val === 'spec') {
+        await showFilterPicker(group);
+      } else {
+        // 切回"所有"时清空筛选
+        if (group === 'monster') filterMonsters = [];
+        if (group === 'item') filterItems = [];
+        if (group === 'map') filterMaps = [];
+        updateFilterBadges();
+      }
     };
   });
 
@@ -265,7 +279,9 @@ function initSimTab() {
         pityEnabled: $('simPity').checked,
         pityThreshold: +$('simPityVal').value,
         runCount: +$('simRunCount').value,
-        monsters: [], items: [], maps: []
+        monsters: filterMonsters,
+        items: filterItems,
+        maps: filterMaps
       };
       simResult = await window.go.main.App.RunSimulation(req);
       renderSimResult(simResult);
@@ -323,6 +339,95 @@ function filterTable(bodyId, query) {
     const text = r.textContent.toLowerCase();
     r.style.display = text.includes(q) ? '' : 'none';
   });
+}
+
+// ===== 筛选选择器 =====
+async function showFilterPicker(group) {
+  let names = [];
+  let title = '';
+  let selected = [];
+  try {
+    if (group === 'monster') {
+      names = await window.go.main.App.GetAllMonsterNames();
+      title = '选择怪物';
+      selected = [...filterMonsters];
+    } else if (group === 'item') {
+      names = await window.go.main.App.GetAllItemNames();
+      title = '选择物品';
+      selected = [...filterItems];
+    } else if (group === 'map') {
+      // 地图列表从 MonGen 推断，使用后端已有数据
+      // 先尝试从模拟结果获取，若无则从加载结果获取
+      names = await window.go.main.App.GetAllMapNames();
+      title = '选择地图';
+      selected = [...filterMaps];
+    }
+  } catch(e) {
+    setStatus('获取列表失败: ' + e);
+    return;
+  }
+
+  if (!names || names.length === 0) {
+    setStatus('请先加载爆率文件');
+    // 切回"所有"
+    $$(`.radio[data-group="${group}"]`).forEach(r => r.classList.remove('selected'));
+    $$(`.radio[data-group="${group}"][data-val="all"]`)[0].classList.add('selected');
+    return;
+  }
+
+  // 构建多选列表
+  const selectedSet = new Set(selected);
+  const listHtml = names.map((n, i) => {
+    const checked = selectedSet.has(n) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:12px"><input type="checkbox" class="filter-cb" data-name="${n}" ${checked} /> <span>${n}</span></label>`;
+  }).join('');
+
+  const searchHtml = `<input type="text" id="filterSearch" placeholder="搜索..." style="width:100%;margin-bottom:8px;background:var(--bg0);border:1px solid var(--border);color:var(--t1);padding:4px 8px;border-radius:var(--r);font-size:12px" />`;
+
+  showModal(title, `
+    ${searchHtml}
+    <div style="max-height:400px;overflow-y:auto" id="filterList">${listHtml}</div>
+    <div style="margin-top:8px;display:flex;gap:8px">
+      <button class="btn btn-sm" id="btnSelectAll">全选</button>
+      <button class="btn btn-sm" id="btnDeselectAll">全不选</button>
+    </div>
+  `, [
+    {text:'确定', cls:'btn-gold', action: () => {
+      const checked = document.querySelectorAll('.filter-cb:checked');
+      const picked = Array.from(checked).map(cb => cb.dataset.name);
+      if (group === 'monster') filterMonsters = picked;
+      if (group === 'item') filterItems = picked;
+      if (group === 'map') filterMaps = picked;
+      updateFilterBadges();
+      hideModal();
+    }},
+    {text:'取消', cls:'', action: () => {
+      hideModal();
+    }}
+  ]);
+
+  // 搜索过滤
+  $('filterSearch').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('.filter-cb').forEach(cb => {
+      const label = cb.closest('label');
+      label.style.display = cb.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+    });
+  };
+
+  // 全选 / 全不选
+  $('btnSelectAll').onclick = () => {
+    document.querySelectorAll('.filter-cb:not([style*="display: none"])').forEach(cb => cb.checked = true);
+  };
+  $('btnDeselectAll').onclick = () => {
+    document.querySelectorAll('.filter-cb').forEach(cb => cb.checked = false);
+  };
+}
+
+function updateFilterBadges() {
+  $('monsterCount').textContent = `(${filterMonsters.length})`;
+  $('itemCount').textContent = `(${filterItems.length})`;
+  $('mapCount').textContent = `(${filterMaps.length})`;
 }
 
 // ===== 授权 =====
