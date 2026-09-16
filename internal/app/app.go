@@ -676,7 +676,7 @@ func (a *App) GetAllMapNames() []string {
 
 // SelectDirectory 打开系统目录选择对话框
 func (a *App) SelectDirectory() (string, error) {
-	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.DialogOptions{
+	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "选择传奇服务端根目录",
 	})
 	if err != nil {
@@ -687,7 +687,7 @@ func (a *App) SelectDirectory() (string, error) {
 
 // SelectFile 打开系统文件选择对话框
 func (a *App) SelectFile(title string) (string, error) {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.DialogOptions{
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: title,
 	})
 	if err != nil {
