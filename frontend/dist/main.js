@@ -1,5 +1,5 @@
 // ===== Wails 后端绑定 =====
-// Wails v2 自动生成 window.go.main.App.* 方法
+// Wails v2 自动生成 window.go.app.App.* 方法
 
 // ===== 状态 =====
 let currentMonsterIdx = -1;
@@ -15,10 +15,10 @@ const $$ = sel => document.querySelectorAll(sel);
 // 等待 Wails 绑定就绪（window.go 可能由运行时异步注入）
 function waitForWailsReady(maxWaitMs = 5000) {
   return new Promise((resolve, reject) => {
-    if (window.go && window.go.main && window.go.main.App) return resolve();
+    if (window.go && window.go.app && window.go.app.App) return resolve();
     const start = Date.now();
     const timer = setInterval(() => {
-      if (window.go && window.go.main && window.go.main.App) {
+      if (window.go && window.go.app && window.go.app.App) {
         clearInterval(timer);
         resolve();
       } else if (Date.now() - start > maxWaitMs) {
@@ -47,7 +47,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 // ===== 配置加载 =====
 async function loadConfig() {
   try {
-    const cfg = await window.go.main.App.GetConfig();
+    const cfg = await window.go.app.App.GetConfig();
     if (cfg && cfg.server_root) {
       $('serverPath').value = cfg.server_root;
     }
@@ -72,10 +72,10 @@ function initToolbar() {
   // 浏览按钮 - 通过 Go 后端打开系统目录选择对话框
   $('btnBrowse').onclick = async () => {
     try {
-      const result = await window.go.main.App.SelectDirectory();
+      const result = await window.go.app.App.SelectDirectory();
       if (result) {
         $('serverPath').value = result;
-        await window.go.main.App.SetServerPath(result);
+        await window.go.app.App.SetServerPath(result);
         setStatus('已选择目录: ' + result);
       }
     } catch(e) {
@@ -87,7 +87,7 @@ function initToolbar() {
   $('btnDetect').onclick = async () => {
     const path = $('serverPath').value;
     if (!path) return setStatus('请先输入服务端目录');
-    const engine = await window.go.main.App.DetectEngine(path);
+    const engine = await window.go.app.App.DetectEngine(path);
     $('engineSelect').value = engine;
     setStatus('检测到引擎: ' + engine);
   };
@@ -96,7 +96,7 @@ function initToolbar() {
     const path = $('serverPath').value;
     if (!path) return setStatus('请选择服务端目录');
     try {
-      const result = await window.go.main.App.LoadFiles(path);
+      const result = await window.go.app.App.LoadFiles(path);
       monsters = result.monsters;
       renderMonsterList();
       setStatus(`已加载 ${result.totalFiles} 个怪物文件，共 ${result.totalEntries} 条掉落配置 | 引擎: ${result.engine}`);
@@ -107,7 +107,7 @@ function initToolbar() {
   };
 
   $('engineSelect').onchange = () => {
-    window.go.main.App.SetEngine($('engineSelect').value);
+    window.go.app.App.SetEngine($('engineSelect').value);
   };
 }
 
@@ -132,7 +132,7 @@ async function selectMonster(idx) {
 
 async function loadEntries(idx) {
   try {
-    const entries = await window.go.main.App.GetEntries(idx);
+    const entries = await window.go.app.App.GetEntries(idx);
     renderEntries(entries);
   } catch(e) { setStatus('错误: ' + e); }
 }
@@ -179,7 +179,7 @@ function initEditTab() {
       {text:'添加',cls:'btn-gold',action:async()=>{
         const item=$('mItem').value,num=+$('mNum').value,den=+$('mDen').value,qty=+$('mQty').value;
         if(!item||den<=0||qty<=0) return setStatus('请填写完整信息');
-        await window.go.main.App.AddEntry(currentMonsterIdx,item,num,den,qty);
+        await window.go.app.App.AddEntry(currentMonsterIdx,item,num,den,qty);
         hideModal(); loadEntries(currentMonsterIdx);
         addLog(`新增掉落: ${item} ${num}/${den} x${qty}`);
       }},
@@ -193,7 +193,7 @@ function initEditTab() {
       {text:'执行',cls:'btn-gold',action:async()=>{
         const mul=+$('mMul').value;
         if(isNaN(mul)||mul<=0) return setStatus('请输入有效正数');
-        const count=await window.go.main.App.BatchMultiply(currentMonsterIdx,mul);
+        const count=await window.go.app.App.BatchMultiply(currentMonsterIdx,mul);
         hideModal(); loadEntries(currentMonsterIdx);
         addLog(`批量倍率 x${mul}: ${count}条`);
       }},
@@ -210,7 +210,7 @@ function initEditTab() {
       {text:'执行',cls:'btn-gold',action:async()=>{
         const num=+$('mNum').value,den=+$('mDen').value;
         if(den<=0) return setStatus('分母必须大于0');
-        const count=await window.go.main.App.BatchSetProb(currentMonsterIdx,num,den);
+        const count=await window.go.app.App.BatchSetProb(currentMonsterIdx,num,den);
         hideModal(); loadEntries(currentMonsterIdx);
         addLog(`批量设置概率 ${num}/${den}: ${count}条`);
       }},
@@ -219,7 +219,7 @@ function initEditTab() {
   };
 
   $('btnAnomaly').onclick = async () => {
-    const anomalies = await window.go.main.App.DetectAnomaly();
+    const anomalies = await window.go.app.App.DetectAnomaly();
     if (!anomalies || anomalies.length === 0) return setStatus('未发现异常配置');
     const html = anomalies.map(a => `<div style="margin-bottom:4px">[${a.monster}] ${a.item||''} ${a.prob||''} — ${a.reason}</div>`).join('');
     showModal(`异常检测结果 (${anomalies.length}个)`, `<div style="max-height:400px;overflow:auto;font-size:12px">${html}</div>`, [{text:'确定',cls:'btn-gold',action:hideModal}]);
@@ -228,20 +228,20 @@ function initEditTab() {
 
   $('btnBackup').onclick = async () => {
     if (currentMonsterIdx < 0) return setStatus('请先选择怪物');
-    const path = await window.go.main.App.BackupCurrent(currentMonsterIdx);
+    const path = await window.go.app.App.BackupCurrent(currentMonsterIdx);
     setStatus('已备份: ' + path);
     addLog('备份文件: ' + path);
   };
 
   $('btnBackupAll').onclick = async () => {
-    const path = await window.go.main.App.BackupAll();
+    const path = await window.go.app.App.BackupAll();
     setStatus('已备份目录: ' + path);
     addLog('备份目录: ' + path);
   };
 
   $('btnSave').onclick = async () => {
     if (currentMonsterIdx < 0) return setStatus('请先选择怪物');
-    await window.go.main.App.SaveFile(currentMonsterIdx);
+    await window.go.app.App.SaveFile(currentMonsterIdx);
     setStatus('已保存');
     addLog('保存文件');
   };
@@ -257,7 +257,7 @@ function showEditDialog(idx, entry) {
     {text:'保存',cls:'btn-gold',action:async()=>{
       const num=+$('mNum').value,den=+$('mDen').value,qty=+$('mQty').value;
       if(den<=0||qty<=0) return setStatus('请输入有效正整数');
-      await window.go.main.App.ModifyEntry(currentMonsterIdx,idx,num,den,qty);
+      await window.go.app.App.ModifyEntry(currentMonsterIdx,idx,num,den,qty);
       hideModal(); loadEntries(currentMonsterIdx);
       addLog(`修改 ${entry.itemName}: ${num}/${den} x${qty}`);
     }},
@@ -306,7 +306,7 @@ function initSimTab() {
         items: filterItems,
         maps: filterMaps
       };
-      simResult = await window.go.main.App.RunSimulation(req);
+      simResult = await window.go.app.App.RunSimulation(req);
       renderSimResult(simResult);
       setStatus(`模拟完成 — 击杀:${simResult.totalKills} 掉落:${simResult.totalDrops} 空爆率:${(simResult.emptyRate*100).toFixed(1)}%`);
       addLog(`模拟完成: ${simResult.totalKills}击杀 ${simResult.totalDrops}掉落`);
@@ -314,7 +314,7 @@ function initSimTab() {
   };
 
   $('btnExport').onclick = async () => {
-    const text = await window.go.main.App.ExportSimResult();
+    const text = await window.go.app.App.ExportSimResult();
     if (!text) return setStatus('请先运行模拟');
     const blob = new Blob([text], {type:'text/plain'});
     const a = document.createElement('a');
@@ -371,17 +371,17 @@ async function showFilterPicker(group) {
   let selected = [];
   try {
     if (group === 'monster') {
-      names = await window.go.main.App.GetAllMonsterNames();
+      names = await window.go.app.App.GetAllMonsterNames();
       title = '选择怪物';
       selected = [...filterMonsters];
     } else if (group === 'item') {
-      names = await window.go.main.App.GetAllItemNames();
+      names = await window.go.app.App.GetAllItemNames();
       title = '选择物品';
       selected = [...filterItems];
     } else if (group === 'map') {
       // 地图列表从 MonGen 推断，使用后端已有数据
       // 先尝试从模拟结果获取，若无则从加载结果获取
-      names = await window.go.main.App.GetAllMapNames();
+      names = await window.go.app.App.GetAllMapNames();
       title = '选择地图';
       selected = [...filterMaps];
     }
@@ -456,7 +456,7 @@ function updateFilterBadges() {
 // ===== 授权 =====
 function initAuthTab() {
   $('btnCopyCode').onclick = async () => {
-    const code = await window.go.main.App.GetMachineID();
+    const code = await window.go.app.App.GetMachineID();
     $('machineCode').textContent = code;
     navigator.clipboard.writeText(code);
     setStatus('机器码已复制');
@@ -466,7 +466,7 @@ function initAuthTab() {
     const code = $('activateCode').value.trim();
     if (!code) return setStatus('请输入激活码');
     try {
-      const info = await window.go.main.App.Activate(code);
+      const info = await window.go.app.App.Activate(code);
       $('licenseStatus').textContent = '✅ 已激活 (' + info.type + ')';
       $('licenseStatus').className = 'status-badge active';
       setStatus('激活成功');
@@ -479,7 +479,7 @@ function initAuthTab() {
 
 async function loadLicenseStatus() {
   try {
-    const info = await window.go.main.App.GetLicenseStatus();
+    const info = await window.go.app.App.GetLicenseStatus();
     if (info.isActive) {
       $('licenseStatus').textContent = '✅ 已激活 (' + info.type + ')';
       $('licenseStatus').className = 'status-badge active';
@@ -487,7 +487,7 @@ async function loadLicenseStatus() {
       $('licenseStatus').textContent = '未激活';
       $('licenseStatus').className = 'status-badge inactive';
     }
-    const code = await window.go.main.App.GetMachineID();
+    const code = await window.go.app.App.GetMachineID();
     $('machineCode').textContent = code;
   } catch(e) {}
 }
