@@ -174,11 +174,11 @@ func (t *CJKTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 func (t *CJKTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
 	case theme.SizeNamePadding:
-		return 6 // 默认 4 → 6，更宽松
+		return 6
 	case theme.SizeNameInnerPadding:
-		return 10 // 默认 8 → 10
+		return 10
 	case theme.SizeNameText:
-		return 13 // 默认 14 → 13，正文稍紧凑
+		return 13
 	case theme.SizeNameHeadingText:
 		return 20
 	case theme.SizeNameSubHeadingText:
@@ -188,11 +188,11 @@ func (t *CJKTheme) Size(name fyne.ThemeSizeName) float32 {
 	case theme.SizeNameInputBorder:
 		return 1
 	case theme.SizeNameInputRadius:
-		return 6 // 默认 5 → 6，输入框更圆润
+		return 6
 	case theme.SizeNameSelectionRadius:
 		return 4
 	case theme.SizeNameScrollBar:
-		return 8 // 默认 16 → 8，滚动条更细
+		return 8
 	case theme.SizeNameScrollBarSmall:
 		return 4
 	case theme.SizeNameSeparatorThickness:
@@ -210,17 +210,17 @@ func (t *CJKTheme) Size(name fyne.ThemeSizeName) float32 {
 
 func darkColor(name fyne.ThemeColorName) color.Color {
 	switch name {
-	// 背景
+	// 背景 - Button/InputBackground 设为透明，让 BGBox 的 canvas.Rectangle 背景可见
 	case theme.ColorNameBackground:
 		return colorBgPrimary
 	case theme.ColorNameHeaderBackground:
 		return colorBgSecondary
 	case theme.ColorNameButton:
-		return colorBgTertiary
+		return color.Transparent
 	case theme.ColorNameDisabledButton:
 		return colorBgTertiary
 	case theme.ColorNameInputBackground:
-		return colorBgTertiary
+		return color.Transparent
 	case theme.ColorNameMenuBackground:
 		return colorBgCard
 	case theme.ColorNameOverlayBackground:

@@ -66,3 +66,15 @@ func (b *RoundedBtn) SetText(text string) {
 	b.textObj.Text = text
 	b.textObj.Refresh()
 }
+
+// ── 快捷函数：给 Entry/按钮 包可见背景 ──────────────────────
+
+// EntryBG 给输入框加背景（Theme 里 InputBackground 已透明）
+func EntryBG(entry fyne.CanvasObject) fyne.CanvasObject {
+	return BGBox(colorBgTertiary, entry)
+}
+
+// BtnBG 给标准按钮加背景（Theme 里 Button 已透明）
+func BtnBG(btn fyne.CanvasObject) fyne.CanvasObject {
+	return BGBox(colorBgTertiary, btn)
+}

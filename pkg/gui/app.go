@@ -185,8 +185,8 @@ func (a *App) buildToolbar() fyne.CanvasObject {
 	)
 	a.engineSelect.SetSelected("自动检测")
 
-	row1 := container.NewBorder(nil, nil, widget.NewLabel("服务端目录:"), browseBtn, a.serverPathEntry)
-	row2 := container.NewBorder(nil, nil, widget.NewLabel("引擎类型:"), container.NewHBox(autoDetectBtn, loadBtn), a.engineSelect)
+	row1 := container.NewBorder(nil, nil, widget.NewLabel("服务端目录:"), browseBtn, EntryBG(a.serverPathEntry))
+	row2 := container.NewBorder(nil, nil, widget.NewLabel("引擎类型:"), container.NewHBox(autoDetectBtn, loadBtn), EntryBG(a.engineSelect))
 
 	return BGBox(colorBgTertiary, container.NewVBox(row1, row2))
 }
@@ -359,7 +359,7 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	}
 	monsterSection := container.NewVBox(
 		widget.NewLabelWithStyle("怪物", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		container.NewHBox(a.simMonsterRadio, a.simMonsterCount, monsterSetBtn),
+		container.NewHBox(a.simMonsterRadio, a.simMonsterCount, BtnBG(monsterSetBtn)),
 	)
 
 	// 物品选择
@@ -379,7 +379,7 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	}
 	itemSection := container.NewVBox(
 		widget.NewLabelWithStyle("物品", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		container.NewHBox(a.simItemRadio, a.simItemCount, itemSetBtn),
+		container.NewHBox(a.simItemRadio, a.simItemCount, BtnBG(itemSetBtn)),
 	)
 
 	// 地图选择
@@ -399,7 +399,7 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	}
 	mapSection := container.NewVBox(
 		widget.NewLabelWithStyle("地图", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		container.NewHBox(a.simMapRadio, a.simMapCount, mapSetBtn),
+		container.NewHBox(a.simMapRadio, a.simMapCount, BtnBG(mapSetBtn)),
 	)
 
 	filterRow := container.NewGridWithColumns(3, monsterSection, itemSection, mapSection)
@@ -418,10 +418,10 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	simBtn := NewRoundedBtn("▶ 开始模拟", colorAccent, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, colorAccentHover, 6, a.onRunSimNew)
 
 	paramRow := container.NewHBox(
-		widget.NewLabel("模拟时长(h):"), a.simDurationEntry,
-		widget.NewLabel("消灭比例(%):"), a.simKillRatioEntry,
-		a.simPityCheck, widget.NewLabel("连续空击杀:"), a.simPityEntry,
-		widget.NewLabel("模拟轮数:"), a.simRunCountEntry,
+		widget.NewLabel("模拟时长(h):"), EntryBG(a.simDurationEntry),
+		widget.NewLabel("消灭比例(%):"), EntryBG(a.simKillRatioEntry),
+		a.simPityCheck, widget.NewLabel("连续空击杀:"), EntryBG(a.simPityEntry),
+		widget.NewLabel("模拟轮数:"), EntryBG(a.simRunCountEntry),
 		layout.NewSpacer(),
 		simBtn,
 	)
@@ -611,15 +611,15 @@ func (a *App) buildSimTabFull() fyne.CanvasObject {
 	openFileBtn := NewRoundedBtn("📂 打开文件", colorBgTertiary, colorTextPrimary, colorBgHover, 6, func() {
 		a.openSelectedMonsterFile()
 	})
-	monsterSearchBar := container.NewBorder(nil, nil, nil, openFileBtn, a.simMonsterSearch)
+	monsterSearchBar := container.NewBorder(nil, nil, nil, openFileBtn, EntryBG(a.simMonsterSearch))
 
 	resultGrid := container.NewGridWithColumns(3,
 		container.NewBorder(
 			widget.NewLabelWithStyle("掉落物品列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-			a.simItemSearch, nil, nil, a.simItemTable),
+			EntryBG(a.simItemSearch), nil, nil, a.simItemTable),
 		container.NewBorder(
 			widget.NewLabelWithStyle("掉落地图列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-			a.simMapSearch, nil, nil, a.simMapTable),
+			EntryBG(a.simMapSearch), nil, nil, a.simMapTable),
 		container.NewBorder(
 			widget.NewLabelWithStyle("掉落怪物列表", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
 			monsterSearchBar, nil, nil, a.simMonsterTable),
@@ -1060,7 +1060,7 @@ func (a *App) buildAuthTab() fyne.CanvasObject {
 		container.NewPadded(container.NewVBox(
 			widget.NewLabelWithStyle("🔑 授权状态", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			statusLabel,
-			container.NewBorder(nil, nil, nil, activateBtn, activateEntry),
+			container.NewBorder(nil, nil, nil, activateBtn, EntryBG(activateEntry)),
 		)),
 	)
 	cardHelp := BGBox(colorBgCard,
@@ -1231,7 +1231,7 @@ func (a *App) showMultiPicker(title string, items []string, onConfirm func([]str
 	scroll.SetMinSize(fyne.NewSize(500, 450))
 
 	content := container.NewBorder(
-		container.NewVBox(searchEntry, container.NewHBox(selectAllBtn, clearAllBtn)),
+		container.NewVBox(EntryBG(searchEntry), container.NewHBox(BtnBG(selectAllBtn), BtnBG(clearAllBtn))),
 		nil, nil, nil, scroll,
 	)
 
