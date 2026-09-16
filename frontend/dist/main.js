@@ -46,6 +46,24 @@ function initTabs() {
 
 // ===== 工具栏 =====
 function initToolbar() {
+  // 浏览按钮 - 用 Wails runtime 打开系统文件夹选择对话框
+  $('btnBrowse').onclick = async () => {
+    try {
+      const result = await window.runtime.OpenDirectoryDialog({
+        Title: '选择传奇服务端根目录',
+        DefaultDirectory: $('serverPath').value || ''
+      });
+      if (result) {
+        $('serverPath').value = result;
+        await window.go.main.App.SetServerPath(result);
+        setStatus('已选择目录: ' + result);
+      }
+    } catch(e) {
+      console.error('Browse error:', e);
+      setStatus('浏览失败: ' + e);
+    }
+  };
+
   $('btnDetect').onclick = async () => {
     const path = $('serverPath').value;
     if (!path) return setStatus('请先输入服务端目录');
