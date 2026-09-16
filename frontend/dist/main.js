@@ -40,6 +40,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initToolbar();
   initEditTab();
   initSimTab();
+  initTuneTab();
   initAuthTab();
   loadConfig();
 });
@@ -99,6 +100,7 @@ function initToolbar() {
       const result = await window.go.app.App.LoadFiles(path);
       monsters = result.monsters;
       renderMonsterList();
+      refreshTuneItemList();
       setStatus(`已加载 ${result.totalFiles} 个怪物文件，共 ${result.totalEntries} 条掉落配置 | 引擎: ${result.engine}`);
       if (result.warnings && result.warnings.length > 0) {
         showModal('解析提示', `<div style="max-height:400px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre">${result.warnings.join('\n')}</div>`, [{text:'确定',cls:'btn-gold',action:hideModal}]);
@@ -451,6 +453,184 @@ function updateFilterBadges() {
   $('monsterCount').textContent = `(${filterMonsters.length})`;
   $('itemCount').textContent = `(${filterItems.length})`;
   $('mapCount').textContent = `(${filterMaps.length})`;
+}
+
+// ===== 爆率调配 =====
+let tuneAnalysis = null;
+let tuneRecommend = null;
+
+function initTuneTab() {
+  // 分析按钮
+  $('btnAnalyze').onclick = async () => {
+    const itemName = $('tuneItemSelect').value;
+    if (!itemName) return setStatus('请选择物品');
+    try {
+      tuneAnalysis = await window.go.app.App.AnalyzeItemDrops(itemName);
+      tuneRecommend = null;
+      renderTuneSources();
+      renderTuneTargets();
+      $('tuneRecommendSection').style.display = 'none';
+      $('tuneCopySection').style.display = 'none';
+      setStatus(`已分析「${itemName}」: ${tuneAnalysis.sources.length} 个掉落来源，综合期望 ${tuneAnalysis.totalExpectH.toFixed(1)} 小时/个`);
+    } catch(e) { setStatus('分析失败: ' + e); }
+  };
+
+  // 计算推荐
+  $('btnCalcRecommend').onclick = async () => {
+    if (!tuneAnalysis) return setStatus('请先分析掉落来源');
+    const itemName = tuneAnalysis.itemName;
+    const targets = [];
+    document.querySelectorAll('.tune-target-card').forEach(card => {
+      const mapName = card.dataset.map;
+      const hours = parseFloat(card.querySelector('input').value) || 0;
+      if (hours > 0) {
+        targets.push({ mapName, targetHours: hours });
+      }
+    });
+    if (targets.length === 0) return setStatus('请至少设置一个地图的目标时间');
+    try {
+      tuneRecommend = await window.go.app.App.RecommendRates(itemName, targets);
+      renderTuneRecommend();
+      $('tuneRecommendSection').style.display = '';
+      $('tuneCopySection').style.display = '';
+      // 填充复制目标物品列表
+      await fillCopyTargets(itemName);
+      setStatus(`已生成 ${tuneRecommend.length} 条推荐修改`);
+    } catch(e) { setStatus('计算失败: ' + e); }
+  };
+
+  // 备份
+  $('btnBackupAll2').onclick = async () => {
+    try {
+      const path = await window.go.app.App.BackupAll();
+      setStatus('已备份目录: ' + path);
+      addLog('备份目录: ' + path);
+    } catch(e) { setStatus('备份失败: ' + e); }
+  };
+
+  // 应用推荐值
+  $('btnApplyRecommend').onclick = async () => {
+    if (!tuneRecommend) return setStatus('请先计算推荐爆率');
+    // 从表格读取用户可能修改过的值
+    const rows = document.querySelectorAll('#tuneRecommendTable .rec-row');
+    rows.forEach((row, i) => {
+      if (i < tuneRecommend.length) {
+        const denInput = row.querySelector('.rec-den');
+        if (denInput) tuneRecommend[i].newDen = parseInt(denInput.value) || tuneRecommend[i].newDen;
+      }
+    });
+    try {
+      const count = await window.go.app.App.ApplyRecommendedRates(tuneAnalysis.itemName, tuneRecommend);
+      setStatus(`已修改 ${count} 条爆率配置`);
+      addLog(`应用推荐爆率「${tuneAnalysis.itemName}」: ${count}条`);
+    } catch(e) { setStatus('应用失败: ' + e); }
+  };
+
+  // 复制爆率
+  $('btnCopyRates').onclick = async () => {
+    if (!tuneAnalysis) return setStatus('请先分析掉落来源');
+    const sourceItem = tuneAnalysis.itemName;
+    const select = $('tuneCopyTargets');
+    const selected = Array.from(select.selectedOptions).map(o => o.value).filter(v => v);
+    if (selected.length === 0) return setStatus('请选择目标物品');
+    try {
+      const result = await window.go.app.App.CopyRatesToItems(sourceItem, selected);
+      setStatus(result.message);
+      addLog(result.message);
+    } catch(e) { setStatus('复制失败: ' + e); }
+  };
+}
+
+function renderTuneSources() {
+  if (!tuneAnalysis) return;
+  $('tuneSourceCount').textContent = `(${tuneAnalysis.sources.length}个来源)`;
+  let html = `<table class="tune-table">
+    <tr><th>地图</th><th>怪物</th><th>爆率</th><th>数量</th><th>每小时怪数</th><th>期望(小时/个)</th></tr>`;
+  tuneAnalysis.sources.forEach(s => {
+    const timeCls = s.expectHours <= 2 ? 'time-good' : s.expectHours <= 10 ? 'time-warn' : 'time-bad';
+    html += `<tr>
+      <td>${s.mapName}</td>
+      <td>${s.monsterName}</td>
+      <td class="num prob">${s.probStr}</td>
+      <td class="num">${s.quantity}</td>
+      <td class="num">${s.killPerHour.toFixed(1)}</td>
+      <td class="num ${timeCls}">${s.expectHours.toFixed(1)}</td>
+    </tr>`;
+  });
+  html += `<tr style="font-weight:600;background:var(--bg2)"><td colspan="4">综合</td><td class="num">${tuneAnalysis.totalKph.toFixed(1)}</td><td class="num">${tuneAnalysis.totalExpectH.toFixed(1)}</td></tr>`;
+  html += '</table>';
+  $('tuneSourceTable').innerHTML = html;
+}
+
+function renderTuneTargets() {
+  if (!tuneAnalysis) return;
+  // 按地图去重
+  const maps = [];
+  const seen = new Set();
+  tuneAnalysis.sources.forEach(s => {
+    if (!seen.has(s.mapName)) {
+      seen.add(s.mapName);
+      maps.push({ mapName: s.mapName, currentH: s.expectHours });
+    }
+  });
+  let html = '';
+  maps.forEach(m => {
+    const defaultVal = Math.max(1, Math.round(m.currentH));
+    html += `<div class="tune-target-card" data-map="${m.mapName}">
+      <label>${m.mapName}:</label>
+      <input type="text" value="${defaultVal}" /> 小时/个
+      <span style="color:var(--t3);font-size:11px">(当前≈${m.currentH.toFixed(1)}h)</span>
+    </div>`;
+  });
+  $('tuneTargets').innerHTML = html;
+}
+
+function renderTuneRecommend() {
+  if (!tuneRecommend) return;
+  $('tuneRecommendCount').textContent = `(${tuneRecommend.length}条)`;
+  let html = `<table class="tune-table">
+    <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th></tr>`;
+  tuneRecommend.forEach((c, i) => {
+    const oldProb = c.oldNum + '/' + c.oldDen;
+    html += `<tr class="rec-row">
+      <td>${c.mapName}</td>
+      <td>${c.monsterName}</td>
+      <td class="num prob">${oldProb}</td>
+      <td class="num">${c.newNum}/<input type="text" class="rec-den" value="${c.newDen}" style="width:65px" /></td>
+      <td class="num">${c.newExpectH.toFixed(1)}h</td>
+    </tr>`;
+  });
+  html += '</table>';
+  $('tuneRecommendTable').innerHTML = html;
+}
+
+async function fillCopyTargets(excludeItem) {
+  try {
+    const allItems = await window.go.app.App.GetAllItemNames();
+    const select = $('tuneCopyTargets');
+    select.innerHTML = '';
+    (allItems || []).filter(n => n !== excludeItem).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+  } catch(e) { console.log('fillCopyTargets:', e); }
+}
+
+// 物品列表刷新（加载爆率文件后调用）
+async function refreshTuneItemList() {
+  try {
+    const allItems = await window.go.app.App.GetAllItemNames();
+    const select = $('tuneItemSelect');
+    select.innerHTML = '<option value="">-- 请选择物品 --</option>';
+    (allItems || []).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+  } catch(e) { console.log('refreshTuneItemList:', e); }
 }
 
 // ===== 授权 =====

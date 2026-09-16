@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -738,6 +739,363 @@ func (a *App) FormatEntryDisplay(monsterIndex int) []string {
 		}
 	}
 	return lines
+}
+
+// ============================================================
+// 爆率调配（Rate Tuning）
+// ============================================================
+
+// ItemDropSource 单个掉落来源
+type ItemDropSource struct {
+	MonsterName  string  `json:"monsterName"`
+	MonsterIndex int     `json:"monsterIndex"` // currentResults 索引
+	EntryIndex   int     `json:"entryIndex"`   // 条目索引
+	MapName      string  `json:"mapName"`
+	ProbNum      int     `json:"probNum"`
+	ProbDen      int     `json:"probDen"`
+	ProbStr      string  `json:"probStr"`
+	Quantity     int     `json:"quantity"`
+	KillPerHour  float64 `json:"killPerHour"`  // 每小时杀怪数
+	ExpectHours  float64 `json:"expectHours"`  // 当前期望多少小时出一个
+}
+
+// RateAnalysis 物品掉落分析结果
+type RateAnalysis struct {
+	ItemName     string           `json:"itemName"`
+	Sources      []ItemDropSource `json:"sources"`
+	TotalKPH     float64          `json:"totalKph"`      // 所有来源总每小时杀怪数
+	TotalExpectH float64          `json:"totalExpectH"`  // 综合期望小时
+}
+
+// RateChange 单条爆率修改建议
+type RateChange struct {
+	MonsterName  string `json:"monsterName"`
+	MonsterIndex int    `json:"monsterIndex"`
+	EntryIndex   int    `json:"entryIndex"`
+	MapName      string `json:"mapName"`
+	OldNum       int    `json:"oldNum"`
+	OldDen       int    `json:"oldDen"`
+	NewNum       int    `json:"newNum"`
+	NewDen       int    `json:"newDen"`
+	NewExpectH   float64 `json:"newExpectH"` // 修改后期望小时
+}
+
+// TargetRate 目标爆率
+type TargetRate struct {
+	MapName     string  `json:"mapName"`     // 地图名
+	TargetHours float64 `json:"targetHours"` // 目标多少小时出一个
+}
+
+// CopyResult 复制结果
+type CopyResult struct {
+	Success  bool   `json:"success"`
+	Modified int    `json:"modified"` // 修改了多少条
+	Message  string `json:"message"`
+}
+
+// AnalyzeItemDrops 分析指定物品的所有掉落来源
+func (a *App) AnalyzeItemDrops(itemName string) (*RateAnalysis, error) {
+	if a.currentResults == nil {
+		return nil, fmt.Errorf("请先加载爆率文件")
+	}
+	if itemName == "" {
+		return nil, fmt.Errorf("请输入物品名称")
+	}
+
+	analysis := &RateAnalysis{
+		ItemName: itemName,
+	}
+
+	for mi, r := range a.currentResults {
+		monsterName := r.File.MonsterName
+		for ei, e := range r.File.Entries {
+			if !e.IsEditable() {
+				continue
+			}
+			if e.ItemName != itemName {
+				continue
+			}
+
+			// 从 MonGen 获取该怪物的刷怪信息
+			refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
+			kph := float64(count) * 3600.0 / refreshSec // 每小时杀怪数
+
+			prob := e.Probability()
+			var expectH float64
+			if prob > 0 && kph > 0 {
+				expectH = 1.0 / (kph * prob)
+			} else {
+				expectH = 999999
+			}
+
+			// 查找该怪物所在的地图
+			mapName := findMapForMonster(a.monGenEntries, monsterName)
+			displayMap := mapName
+			if a.mapInfoLookup != nil {
+				if desc, ok := a.mapInfoLookup[mapName]; ok && desc != "" {
+					displayMap = mapName + " (" + desc + ")"
+				}
+			}
+
+			analysis.Sources = append(analysis.Sources, ItemDropSource{
+				MonsterName:  monsterName,
+				MonsterIndex: mi,
+				EntryIndex:   ei,
+				MapName:      displayMap,
+				ProbNum:      e.ProbabilityNumerator,
+				ProbDen:      e.ProbabilityDenominator,
+				ProbStr:      e.ProbabilityStr(),
+				Quantity:     e.Quantity,
+				KillPerHour:  kph,
+				ExpectHours:  expectH,
+			})
+
+			analysis.TotalKPH += kph
+		}
+	}
+
+	if len(analysis.Sources) == 0 {
+		return nil, fmt.Errorf("未找到物品「%s」的掉落配置", itemName)
+	}
+
+	// 综合期望：总杀怪速率下出一个的时间
+	totalProbRate := 0.0
+	for _, s := range analysis.Sources {
+		prob := float64(s.ProbNum) / float64(s.ProbDen)
+		totalProbRate += s.KillPerHour * prob
+	}
+	if totalProbRate > 0 {
+		analysis.TotalExpectH = 1.0 / totalProbRate
+	} else {
+		analysis.TotalExpectH = 999999
+	}
+
+	return analysis, nil
+}
+
+// RecommendRates 根据目标时间推荐爆率修改
+// targets: 每个地图的目标小时数
+func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChange, error) {
+	if a.currentResults == nil {
+		return nil, fmt.Errorf("请先加载爆率文件")
+	}
+
+	// 构建目标 map
+	targetMap := make(map[string]float64)
+	for _, t := range targets {
+		targetMap[t.MapName] = t.TargetHours
+	}
+
+	var changes []RateChange
+
+	for mi, r := range a.currentResults {
+		monsterName := r.File.MonsterName
+		for ei, e := range r.File.Entries {
+			if !e.IsEditable() || e.ItemName != itemName {
+				continue
+			}
+
+			mapName := findMapForMonster(a.monGenEntries, monsterName)
+			displayMap := mapName
+			if a.mapInfoLookup != nil {
+				if desc, ok := a.mapInfoLookup[mapName]; ok && desc != "" {
+					displayMap = mapName + " (" + desc + ")"
+				}
+			}
+
+			// 匹配目标：先尝试 displayMap，再尝试 mapName
+			targetH, ok := targetMap[displayMap]
+			if !ok {
+				targetH, ok = targetMap[mapName]
+			}
+			if !ok {
+				continue // 此地图无目标，跳过
+			}
+
+			refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
+			kph := float64(count) * 3600.0 / refreshSec
+
+			// 反算推荐分母：
+			// expectH = 1 / (kph * num/den)
+			// => den = kph * num * targetH
+			var newDen int
+			if kph > 0 && targetH > 0 {
+				rawDen := kph * float64(e.ProbabilityNumerator) * targetH
+				newDen = roundToNiceDenominator(rawDen)
+			} else {
+				newDen = e.ProbabilityDenominator
+			}
+
+			newExpectH := 1.0 / (kph * float64(e.ProbabilityNumerator) / float64(newDen))
+
+			changes = append(changes, RateChange{
+				MonsterName:  monsterName,
+				MonsterIndex: mi,
+				EntryIndex:   ei,
+				MapName:      displayMap,
+				OldNum:       e.ProbabilityNumerator,
+				OldDen:       e.ProbabilityDenominator,
+				NewNum:       e.ProbabilityNumerator,
+				NewDen:       newDen,
+				NewExpectH:   newExpectH,
+			})
+		}
+	}
+
+	if len(changes) == 0 {
+		return nil, fmt.Errorf("未找到物品「%s」的匹配掉落来源", itemName)
+	}
+
+	return changes, nil
+}
+
+// ApplyRecommendedRates 应用推荐爆率修改
+func (a *App) ApplyRecommendedRates(itemName string, changes []RateChange) (int, error) {
+	if a.currentResults == nil {
+		return 0, fmt.Errorf("请先加载爆率文件")
+	}
+	modified := 0
+	for _, c := range changes {
+		mi := c.MonsterIndex
+		if mi < 0 || mi >= len(a.currentResults) {
+			continue
+		}
+		file := a.currentResults[mi].File
+		ei := c.EntryIndex
+		if ei < 0 || ei >= len(file.Entries) {
+			continue
+		}
+		entry := file.Entries[ei]
+		if entry.ItemName != itemName {
+			continue
+		}
+		a.editor.ModifyEntry(file, entry, c.NewNum, c.NewDen)
+		modified++
+	}
+	return modified, nil
+}
+
+// CopyRatesToItems 将指定物品的爆率复制到其他物品
+// 仅复制可编辑的普通掉落条目（跳过 #CALL/#CHILD 等）
+func (a *App) CopyRatesToItems(sourceItem string, targetItems []string) (*CopyResult, error) {
+	if a.currentResults == nil {
+		return nil, fmt.Errorf("请先加载爆率文件")
+	}
+	if len(targetItems) == 0 {
+		return nil, fmt.Errorf("请选择至少一个目标物品")
+	}
+
+	// 收集源物品在每个怪物中的爆率配置
+	type sourceRate struct {
+		num int
+		den int
+		qty int
+	}
+	monsterRates := make(map[string]sourceRate) // monsterName -> rate
+
+	for _, r := range a.currentResults {
+		for _, e := range r.File.Entries {
+			if e.IsEditable() && e.ItemName == sourceItem {
+				monsterRates[r.File.MonsterName] = sourceRate{
+					num: e.ProbabilityNumerator,
+					den: e.ProbabilityDenominator,
+					qty: e.Quantity,
+				}
+				break
+			}
+		}
+	}
+
+	if len(monsterRates) == 0 {
+		return nil, fmt.Errorf("未找到物品「%s」的掉落配置", sourceItem)
+	}
+
+	totalModified := 0
+	for _, targetItem := range targetItems {
+		for _, r := range a.currentResults {
+			rate, hasRate := monsterRates[r.File.MonsterName]
+			if !hasRate {
+				continue
+			}
+
+			found := false
+			for _, e := range r.File.Entries {
+				if e.IsEditable() && e.ItemName == targetItem {
+					a.editor.ModifyEntry(r.File, e, rate.num, rate.den)
+					a.editor.ModifyQuantity(r.File, e, rate.qty)
+					totalModified++
+					found = true
+					break
+				}
+			}
+
+			// 如果该怪物没有此物品，新增一条
+			if !found {
+				a.editor.AddEntry(r.File, targetItem, rate.num, rate.den, rate.qty)
+				totalModified++
+			}
+		}
+	}
+
+	return &CopyResult{
+		Success:  true,
+		Modified: totalModified,
+		Message:  fmt.Sprintf("已将「%s」的爆率复制到 %d 个物品，共修改 %d 条", sourceItem, len(targetItems), totalModified),
+	}, nil
+}
+
+// SaveAllModifiedFiles 保存所有已修改的爆率文件
+func (a *App) SaveAllModifiedFiles() (int, error) {
+	if a.currentResults == nil {
+		return 0, fmt.Errorf("请先加载爆率文件")
+	}
+	count := 0
+	for _, r := range a.currentResults {
+		if a.cfg.AutoBackup && a.backupMgr != nil {
+			a.backupMgr.BackupFile(r.File.FilePath)
+		}
+		a.editor.RebuildRawContent(r.File)
+		if err := a.editor.SaveFile(r.File); err == nil {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// findMonGenInfo 从 MonGen 中查找怪物的刷新信息
+func findMonGenInfo(entries []*parser.MonGenEntry, monsterName string) (refreshSec float64, count int) {
+	for _, e := range entries {
+		if strings.EqualFold(e.MonsterName, monsterName) {
+			return float64(e.RefreshMinutes) * 60, e.Count
+		}
+	}
+	return 60, 10 // 默认值：60秒刷新，每次10只
+}
+
+// findMapForMonster 从 MonGen 中查找怪物所在的地图
+func findMapForMonster(entries []*parser.MonGenEntry, monsterName string) string {
+	for _, e := range entries {
+		if strings.EqualFold(e.MonsterName, monsterName) {
+			return e.MapName
+		}
+	}
+	return "未知地图"
+}
+
+// roundToNiceDenominator 将分母取整到"好看"的数字
+func roundToNiceDenominator(raw float64) int {
+	if raw <= 0 {
+		return 1
+	}
+	// 优先取整到 10/100/500/1000/5000/10000 等
+	niceValues := []int{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000}
+	for _, n := range niceValues {
+		if float64(n) >= raw*0.8 {
+			return n
+		}
+	}
+	// 超大值，取整到万
+	return int(math.Ceil(raw/10000)) * 10000
 }
 
 // Placeholder 防止空 import
