@@ -42,8 +42,9 @@ type App struct {
 }
 
 func NewApp() *App {
+	cfg, _ := config.Load()
 	return &App{
-		cfg:       config.Load(),
+		cfg:       cfg,
 		editor:    editor.New(),
 		simulator: simulator.New(),
 		authMgr:   auth.NewLocalAuth(),
