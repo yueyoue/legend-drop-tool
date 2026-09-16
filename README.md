@@ -17,6 +17,7 @@
 - 🎮 基于传奇原生掉落逻辑的真实模拟
 - ⏱️ 可配置模拟时长、击杀比例、刷新频率
 - 📊 多维度统计报表（怪物/物品/概率）
+- 🎯 指定物品/地图/怪物筛选模拟
 - 📝 支持导出模拟结果
 
 ### 授权管理
@@ -61,56 +62,63 @@
 
 ## 编译
 
-需要 Go 1.21+ 和 GCC (CGO for SQLite):
+需要 Go 1.21+ 和 [Wails v2](https://wails.io/) CLI：
 
 ```bash
-go mod tidy
-go build -ldflags "-s -w -H windowsgui" -o legend-drop-tool.exe ./cmd/
-```
+# 安装 Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-> 中文字体（Noto Sans SC）已通过 `//go:embed` 嵌入二进制，编译时自动包含，无需额外步骤。
+# 编译
+wails build -platform windows/amd64 -o legend-drop-tool.exe -ldflags "-s -w"
+```
 
 或通过 GitHub Actions 自动编译（推送 tag 触发）：
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
 ## 技术栈
 
 - **语言**: Go 1.21
-- **GUI**: Fyne v2
-- **架构**: 分层架构（UI/业务逻辑/数据处理）
+- **GUI框架**: [Wails v2](https://wails.io/)（WebView2 前端 + Go 后端）
+- **前端**: 原生 HTML/CSS/JS（无框架依赖）
+- **架构**: Go 后端绑定 + WebView2 前端渲染
+- **CI/CD**: GitHub Actions
 
 ## 项目结构
 
 ```
 legend-drop-tool/
-├── cmd/
-│   └── main.go           # 入口
-├── fonts/
-│   ├── NotoSansSC.ttf    # 中文字体（编译时嵌入）
-│   └── fonts.go          # //go-embed 声明
+├── main.go                    # Wails 入口
+├── wails.json                 # Wails 项目配置
+├── internal/
+│   └── app/
+│       └── app.go             # 后端绑定（所有 public 方法自动暴露给前端）
+├── frontend/
+│   └── dist/                  # 前端静态资源（嵌入二进制）
+│       ├── index.html         # 主页面
+│       ├── main.js            # 前端逻辑
+│       └── style.css          # 样式
 ├── pkg/
-│   ├── gui/              # GUI界面
-│   │   ├── app.go
-│   │   └── theme.go      # CJK中文主题
-│   ├── parser/           # 爆率文件解析
-│   │   ├── types.go
-│   │   └── parser.go
-│   ├── editor/           # 爆率编辑
+│   ├── parser/                # 爆率文件解析
+│   │   ├── types.go           # 数据类型定义
+│   │   └── parser.go          # 解析引擎（支持全部格式）
+│   ├── editor/                # 爆率编辑
 │   │   └── editor.go
-│   ├── simulator/        # 爆率模拟
+│   ├── simulator/             # 爆率模拟
 │   │   └── simulator.go
-│   ├── backup/           # 备份管理
+│   ├── backup/                # 备份管理
 │   │   └── backup.go
-│   ├── auth/             # 授权管理 (预留)
+│   ├── auth/                  # 授权管理（预留）
 │   │   └── auth.go
-│   └── config/           # 配置管理
+│   └── config/                # 配置管理
 │       └── config.go
+├── fonts/
+│   └── fonts.go               # 字体嵌入
 ├── .github/workflows/
-│   └── build.yml         # CI/CD
+│   └── build.yml              # CI/CD
 └── README.md
 ```
 
