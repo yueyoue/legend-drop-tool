@@ -13,107 +13,69 @@ import (
 	"github.com/yueyoue/legend-drop-tool/fonts"
 )
 
-// ── 自定义深色主题色板（与 HTML demo 一致）─────────────────────
-
+// 传奇爆率工具深色主题配色（来自 theme-demo.html）
 var (
-	// 背景层级
-	colorBgPrimary   = color.NRGBA{R: 0x0f, G: 0x11, B: 0x17, A: 0xff} // #0f1117
-	colorBgSecondary = color.NRGBA{R: 0x16, G: 0x18, B: 0x22, A: 0xff} // #161822
-	colorBgTertiary  = color.NRGBA{R: 0x1c, G: 0x1f, B: 0x2e, A: 0xff} // #1c1f2e
-	colorBgCard      = color.NRGBA{R: 0x1e, G: 0x22, B: 0x35, A: 0xff} // #1e2235
-	colorBgHover     = color.NRGBA{R: 0x25, G: 0x2a, B: 0x3a, A: 0xff} // #252a3a
-	colorBgActive    = color.NRGBA{R: 0x2a, G: 0x30, B: 0x48, A: 0xff} // #2a3048
-
-	// 边框
-	colorBorder      = color.NRGBA{R: 0x2a, G: 0x2e, B: 0x42, A: 0xff} // #2a2e42
-	colorBorderLight = color.NRGBA{R: 0x35, G: 0x3a, B: 0x52, A: 0xff} // #353a52
-
-	// 文字
-	colorTextPrimary   = color.NRGBA{R: 0xe4, G: 0xe6, B: 0xf0, A: 0xff} // #e4e6f0
-	colorTextSecondary = color.NRGBA{R: 0x8b, G: 0x90, B: 0xa8, A: 0xff} // #8b90a8
-	colorTextMuted     = color.NRGBA{R: 0x5a, G: 0x5f, B: 0x78, A: 0xff} // #5a5f78
-
-	// 强调色
-	colorAccent     = color.NRGBA{R: 0xd4, G: 0xa8, B: 0x43, A: 0xff} // #d4a843 金色
-	colorAccentHover = color.NRGBA{R: 0xe0, G: 0xb9, B: 0x4f, A: 0xff} // #e0b94f
-	colorAccentDim  = color.NRGBA{R: 0xd4, G: 0xa8, B: 0x43, A: 0x26} // 半透明金
-	colorError      = color.NRGBA{R: 0xe0, G: 0x55, B: 0x55, A: 0xff} // #e05555
-	colorSuccess    = color.NRGBA{R: 0x4e, G: 0xcb, B: 0x71, A: 0xff} // #4ecb71
-	colorInfo       = color.NRGBA{R: 0x5b, G: 0x9d, B: 0xf0, A: 0xff} // #5b9df0
-
-	// 交互
-	colorPressed = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x18} // 按下高亮
-	colorScroll  = color.NRGBA{R: 0x2a, G: 0x2e, B: 0x42, A: 0x99} // 滚动条
-	colorShadow  = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x66} // 阴影
+	colorBgPrimary   = color.NRGBA{R: 15, G: 17, B: 23, A: 255}   // #0f1117
+	colorBgSecondary = color.NRGBA{R: 22, G: 24, B: 34, A: 255}   // #161822
+	colorBgTertiary  = color.NRGBA{R: 28, G: 31, B: 46, A: 255}   // #1c1f2e
+	colorBgCard      = color.NRGBA{R: 30, G: 34, B: 53, A: 255}   // #1e2235
+	colorBgHover     = color.NRGBA{R: 37, G: 42, B: 58, A: 255}   // #252a3a
+	colorBgActive    = color.NRGBA{R: 42, G: 48, B: 72, A: 255}   // #2a3048
+	colorBorder      = color.NRGBA{R: 42, G: 46, B: 66, A: 255}   // #2a2e42
+	colorBorderLight = color.NRGBA{R: 53, G: 58, B: 82, A: 255}   // #353a52
+	colorTextPrimary = color.NRGBA{R: 228, G: 230, B: 240, A: 255} // #e4e6f0
+	colorTextSecond  = color.NRGBA{R: 139, G: 144, B: 168, A: 255} // #8b90a8
+	colorTextMuted   = color.NRGBA{R: 90, G: 95, B: 120, A: 255}  // #5a5f78
+	colorAccent      = color.NRGBA{R: 212, G: 168, B: 67, A: 255}  // #d4a843
+	colorAccentHover = color.NRGBA{R: 224, G: 185, B: 79, A: 255}  // #e0b94f
+	colorAccentDim   = color.NRGBA{R: 212, G: 168, B: 67, A: 38}   // rgba(212,168,67,0.15)
+	colorDanger      = color.NRGBA{R: 224, G: 85, B: 85, A: 255}   // #e05555
+	colorDangerDim   = color.NRGBA{R: 224, G: 85, B: 85, A: 38}    // rgba(224,85,85,0.15)
+	colorSuccess     = color.NRGBA{R: 78, G: 203, B: 113, A: 255}  // #4ecb71
+	colorSuccessDim  = color.NRGBA{R: 78, G: 203, B: 113, A: 38}   // rgba(78,203,113,0.15)
+	colorInfo        = color.NRGBA{R: 91, G: 157, B: 240, A: 255}  // #5b9df0
+	colorPurple      = color.NRGBA{R: 167, G: 139, B: 250, A: 255} // #a78bfa
 )
 
-// ── 浅色主题色板（保留系统默认即可，这里做兜底）─────────────────
-
-var lightFallback = map[fyne.ThemeColorName]color.Color{
-	theme.ColorNameBackground:     color.NRGBA{R: 0xf5, G: 0xf5, B: 0xf5, A: 0xff},
-	theme.ColorNameForeground:     color.NRGBA{R: 0x21, G: 0x21, B: 0x21, A: 0xff},
-	theme.ColorNamePrimary:        color.NRGBA{R: 0x21, G: 0x96, B: 0xf3, A: 0xff},
-	theme.ColorNameInputBackground: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
-	theme.ColorNameInputBorder:    color.NRGBA{R: 0xe0, G: 0xe0, B: 0xe0, A: 0xff},
-	theme.ColorNamePlaceHolder:    color.NRGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff},
-	theme.ColorNameSeparator:      color.NRGBA{R: 0xe0, G: 0xe0, B: 0xe0, A: 0xff},
-}
-
-// ── CJKTheme ─────────────────────────────────────────────────
-
-// CJKTheme 包含中文支持 + 自定义深色/浅色主题
-type CJKTheme struct {
+// DarkTheme 传奇爆率工具深色主题
+type DarkTheme struct {
 	regularFont fyne.Resource
 	boldFont    fyne.Resource
-	variant     fyne.ThemeVariant
 }
 
-// NewCJKTheme 创建支持中文的主题
-func NewCJKTheme(variant fyne.ThemeVariant) *CJKTheme {
-	t := &CJKTheme{variant: variant}
+// NewCJKTheme 创建深色主题（保留函数名兼容）
+func NewCJKTheme() *DarkTheme {
+	t := &DarkTheme{}
 	t.loadFont()
 	return t
 }
 
-// SetVariant 动态切换主题变体
-func (t *CJKTheme) SetVariant(variant fyne.ThemeVariant) {
-	t.variant = variant
-}
-
-// ── 字体加载 ─────────────────────────────────────────────────
-
-func (t *CJKTheme) loadFont() {
-	// 1. 优先使用编译时嵌入的字体
+// loadFont 加载中文字体
+func (t *DarkTheme) loadFont() {
 	if len(fonts.ChineseFont) > 1024 {
 		t.regularFont = fyne.NewStaticResource("WenQuanYiMicroHei.ttf", fonts.ChineseFont)
 		t.boldFont = t.regularFont
-		fmt.Printf("[CJKTheme] 使用嵌入字体: WenQuanYiMicroHei.ttf (%d bytes)\n", len(fonts.ChineseFont))
+		fmt.Printf("[DarkTheme] 使用嵌入字体: WenQuanYiMicroHei.ttf (%d bytes)\n", len(fonts.ChineseFont))
 		return
 	}
 
-	// 2. 从 exe 同目录加载
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 	localFonts := []string{
-		filepath.Join(exeDir, "msyh.ttc"),
-		filepath.Join(exeDir, "msyh.ttf"),
-		filepath.Join(exeDir, "simhei.ttf"),
-		filepath.Join(exeDir, "WenQuanYiMicroHei.ttf"),
-		filepath.Join(exeDir, "fonts", "msyh.ttc"),
-		filepath.Join(exeDir, "fonts", "msyh.ttf"),
-		filepath.Join(exeDir, "fonts", "simhei.ttf"),
-		filepath.Join(exeDir, "fonts", "WenQuanYiMicroHei.ttf"),
+		filepath.Join(exeDir, "msyh.ttc"), filepath.Join(exeDir, "msyh.ttf"),
+		filepath.Join(exeDir, "simhei.ttf"), filepath.Join(exeDir, "WenQuanYiMicroHei.ttf"),
+		filepath.Join(exeDir, "fonts", "msyh.ttc"), filepath.Join(exeDir, "fonts", "msyh.ttf"),
+		filepath.Join(exeDir, "fonts", "simhei.ttf"), filepath.Join(exeDir, "fonts", "WenQuanYiMicroHei.ttf"),
 	}
 	for _, fontPath := range localFonts {
 		if data, err := os.ReadFile(fontPath); err == nil && len(data) > 1024 {
 			t.regularFont = fyne.NewStaticResource(filepath.Base(fontPath), data)
 			t.boldFont = t.regularFont
-			fmt.Printf("[CJKTheme] 本地字体: %s (%d bytes)\n", fontPath, len(data))
+			fmt.Printf("[DarkTheme] 本地字体: %s (%d bytes)\n", fontPath, len(data))
 			return
 		}
 	}
 
-	// 3. Windows 系统字体
 	if runtime.GOOS == "windows" {
 		fontDirs := []string{}
 		for _, envVar := range []string{"WINDIR", "windir", "SystemRoot"} {
@@ -122,27 +84,26 @@ func (t *CJKTheme) loadFont() {
 			}
 		}
 		fontDirs = append(fontDirs, `C:\Windows\Fonts`, `D:\Windows\Fonts`)
-		fontNames := []string{"msyh.ttc", "msyhbd.ttc", "simhei.ttf", "simsun.ttc"}
 		for _, dir := range fontDirs {
-			for _, name := range fontNames {
+			for _, name := range []string{"msyh.ttc", "msyhbd.ttc", "simhei.ttf", "simsun.ttc"} {
 				fontPath := filepath.Join(dir, name)
 				if data, err := os.ReadFile(fontPath); err == nil && len(data) > 1024 {
 					t.regularFont = fyne.NewStaticResource(name, data)
 					t.boldFont = t.regularFont
-					fmt.Printf("[CJKTheme] 系统字体: %s (%d bytes)\n", fontPath, len(data))
+					fmt.Printf("[DarkTheme] 系统字体: %s (%d bytes)\n", fontPath, len(data))
 					return
 				}
 			}
 		}
 	}
-	fmt.Println("[CJKTheme] 警告: 未找到中文字体,中文可能显示为方块")
 }
 
-// ── fyne.Theme 接口实现 ──────────────────────────────────────
-
 // Font 返回字体资源
-func (t *CJKTheme) Font(style fyne.TextStyle) fyne.Resource {
+func (t *DarkTheme) Font(style fyne.TextStyle) fyne.Resource {
 	if style.Monospace {
+		if t.regularFont != nil {
+			return t.regularFont
+		}
 		return theme.DefaultTheme().Font(style)
 	}
 	if style.Bold && t.boldFont != nil {
@@ -154,120 +115,112 @@ func (t *CJKTheme) Font(style fyne.TextStyle) fyne.Resource {
 	return theme.DefaultTheme().Font(style)
 }
 
-// Color 返回自定义主题颜色
-func (t *CJKTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
-	// 深色主题
-	if t.variant == theme.VariantDark {
-		return darkColor(name)
-	}
-	// 浅色主题：优先用自定义色板，兜底用 Fyne 默认
-	if c, ok := lightFallback[name]; ok {
-		return c
-	}
-	return theme.DefaultTheme().Color(name, theme.VariantLight)
-}
-
-func (t *CJKTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
-	return theme.DefaultTheme().Icon(name)
-}
-
-func (t *CJKTheme) Size(name fyne.ThemeSizeName) float32 {
+// Color 返回深色主题颜色
+func (t *DarkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
-	case theme.SizeNamePadding:
-		return 6 // 默认 4 → 6，更宽松
-	case theme.SizeNameInnerPadding:
-		return 10 // 默认 8 → 10
-	case theme.SizeNameText:
-		return 13 // 默认 14 → 13，正文稍紧凑
-	case theme.SizeNameHeadingText:
-		return 20
-	case theme.SizeNameSubHeadingText:
-		return 16
-	case theme.SizeNameCaptionText:
-		return 11
-	case theme.SizeNameInputBorder:
-		return 1
-	case theme.SizeNameInputRadius:
-		return 6 // 默认 5 → 6，输入框更圆润
-	case theme.SizeNameSelectionRadius:
-		return 4
-	case theme.SizeNameScrollBar:
-		return 8 // 默认 16 → 8，滚动条更细
-	case theme.SizeNameScrollBarSmall:
-		return 4
-	case theme.SizeNameSeparatorThickness:
-		return 1
-	case theme.SizeNameInlineIcon:
-		return 20
-	case theme.SizeNameLineSpacing:
-		return 5
-	default:
-		return theme.DefaultTheme().Size(name)
-	}
-}
-
-// ── 深色色板映射 ─────────────────────────────────────────────
-
-func darkColor(name fyne.ThemeColorName) color.Color {
-	switch name {
-	// 背景
+	// 背景色
 	case theme.ColorNameBackground:
 		return colorBgPrimary
 	case theme.ColorNameHeaderBackground:
 		return colorBgSecondary
-	case theme.ColorNameButton:
-		return colorBgTertiary
-	case theme.ColorNameDisabledButton:
-		return colorBgTertiary
-	case theme.ColorNameInputBackground:
-		return colorBgTertiary
-	case theme.ColorNameMenuBackground:
-		return colorBgCard
 	case theme.ColorNameOverlayBackground:
 		return colorBgCard
 
-	// 前景 / 文字
+	// 前景/按钮
 	case theme.ColorNameForeground:
 		return colorTextPrimary
-	case theme.ColorNameDisabled:
-		return colorTextMuted
-	case theme.ColorNamePlaceHolder:
-		return colorTextMuted
-
-	// 强调
+	case theme.ColorNameForegroundOnPrimary:
+		return color.NRGBA{R: 0, G: 0, B: 0, A: 255} // 按钮上的文字用黑色
 	case theme.ColorNamePrimary:
 		return colorAccent
-	case theme.ColorNameHyperlink:
-		return colorInfo
-	case theme.ColorNameFocus:
-		return colorAccentDim
-	case theme.ColorNameSelection:
-		return colorAccentDim
-	case theme.ColorNameSuccess:
-		return colorSuccess
-	case theme.ColorNameError:
-		return colorError
-	case theme.ColorNameWarning:
-		return colorAccent
-
-	// 交互
 	case theme.ColorNameHover:
 		return colorBgHover
 	case theme.ColorNamePressed:
-		return colorPressed
+		return colorBgActive
+	case theme.ColorNameFocus:
+		return colorAccent
+	case theme.ColorNameSelection:
+		return colorAccentDim
 
-	// 边框 / 分隔
+	// 输入框
+	case theme.ColorNameInputBackground:
+		return colorBgTertiary
 	case theme.ColorNameInputBorder:
 		return colorBorder
+	case theme.ColorNamePlaceHolder:
+		return colorTextMuted
+	case theme.ColorNameDisabled:
+		return colorTextMuted
+	case theme.ColorNameDisabledButton:
+		return colorBgTertiary
+
+	// 分隔线/阴影
 	case theme.ColorNameSeparator:
 		return colorBorder
-
-	// 其它
-	case theme.ColorNameScrollBar:
-		return colorScroll
 	case theme.ColorNameShadow:
-		return colorShadow
+		return color.NRGBA{R: 0, G: 0, B: 0, A: 60}
+
+	// 表格
+	case theme.ColorNameTableBackground:
+		return colorBgPrimary
+	case theme.ColorNameTableRow:
+		return colorBgSecondary
+	case theme.ColorNameTableHeader:
+		return colorBgTertiary
+
+	// 按钮
+	case theme.ColorNameButton:
+		return colorBgTertiary
+
+	// 成功/错误/警告
+	case theme.ColorNameSuccess:
+		return colorSuccess
+	case theme.ColorNameError:
+		return colorDanger
+	case theme.ColorNameWarning:
+		return colorAccent
+
+	// 滚动条
+	case theme.ColorNameScrollBar:
+		return colorBorder
 	}
 
-	return colorBgPrimary
+	// 其他未映射的颜色走深色主题默认值
+	return theme.DefaultTheme().Color(name, theme.VariantDark)
+}
+
+// Icon 返回图标资源
+func (t *DarkTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+// Size 返回尺寸配置（紧凑布局 + 小圆角）
+func (t *DarkTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNameInnerPadding:
+		return 4 // 内边距（默认8→4，更紧凑）
+	case theme.SizeNamePadding:
+		return 4 // 通用间距（默认4）
+	case theme.SizeNameText:
+		return 13 // 文字大小
+	case theme.SizeNameHeadingText:
+		return 15
+	case theme.SizeNameSubHeadingText:
+		return 13
+	case theme.SizeNameCaptionText:
+		return 11
+	case theme.SizeNameInlineIcon:
+		return 16
+	case theme.SizeNameScrollBar:
+		return 6 // 滚动条宽度
+	case theme.SizeNameScrollBarSmall:
+		return 4
+	case theme.SizeNameSeparator:
+		return 1 // 分隔线粗细
+	case theme.SizeNameWindowButtonSize:
+		return 28
+	case theme.SizeNameTitleBarHeight:
+		return 30
+	}
+	return theme.DefaultTheme().Size(name)
 }
