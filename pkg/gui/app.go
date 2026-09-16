@@ -117,11 +117,6 @@ func New() {
 	if len(iconData) > 0 {
 		a.SetIcon(fyne.NewStaticResource("icon.png", iconData))
 	}
-	// 根据配置设置主题变体
-	themeVariant := theme.VariantDark
-	if cfg.Theme == "light" {
-		themeVariant = theme.VariantLight
-	}
 	customTheme := NewCJKTheme()
 	a.Settings().SetTheme(customTheme)
 
