@@ -129,8 +129,6 @@ func (t *DarkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) c
 	// 前景/按钮
 	case theme.ColorNameForeground:
 		return colorTextPrimary
-	case theme.ColorNameForegroundOnPrimary:
-		return color.NRGBA{R: 0, G: 0, B: 0, A: 255} // 按钮上的文字用黑色
 	case theme.ColorNamePrimary:
 		return colorAccent
 	case theme.ColorNameHover:
@@ -154,19 +152,11 @@ func (t *DarkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) c
 	case theme.ColorNameDisabledButton:
 		return colorBgTertiary
 
-	// 分隔线/阴影
+	// 分隔线
 	case theme.ColorNameSeparator:
 		return colorBorder
 	case theme.ColorNameShadow:
 		return color.NRGBA{R: 0, G: 0, B: 0, A: 60}
-
-	// 表格
-	case theme.ColorNameTableBackground:
-		return colorBgPrimary
-	case theme.ColorNameTableRow:
-		return colorBgSecondary
-	case theme.ColorNameTableHeader:
-		return colorBgTertiary
 
 	// 按钮
 	case theme.ColorNameButton:
@@ -215,12 +205,6 @@ func (t *DarkTheme) Size(name fyne.ThemeSizeName) float32 {
 		return 6 // 滚动条宽度
 	case theme.SizeNameScrollBarSmall:
 		return 4
-	case theme.SizeNameSeparator:
-		return 1 // 分隔线粗细
-	case theme.SizeNameWindowButtonSize:
-		return 28
-	case theme.SizeNameTitleBarHeight:
-		return 30
 	}
 	return theme.DefaultTheme().Size(name)
 }

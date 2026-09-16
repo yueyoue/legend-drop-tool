@@ -122,7 +122,7 @@ func New() {
 	if cfg.Theme == "light" {
 		themeVariant = theme.VariantLight
 	}
-	customTheme := NewCJKTheme(themeVariant)
+	customTheme := NewCJKTheme()
 	a.Settings().SetTheme(customTheme)
 
 	w := a.NewWindow(appTitle)
