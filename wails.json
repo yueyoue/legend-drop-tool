@@ -1,0 +1,10 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "legend-drop-tool",
+  "outputfilename": "legend-drop-tool",
+  "frontend:dir": "frontend/dist",
+  "author": {
+    "name": "yueyoue",
+    "email": "yueyoue@users.noreply.github.com"
+  }
+}

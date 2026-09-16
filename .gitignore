@@ -23,3 +23,8 @@ Thumbs.db
 
 # Config
 config.json
+
+# Wails
+build/bin/
+node_modules/
+frontend/node_modules/

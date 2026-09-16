@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>传奇爆率模拟与修改工具</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <!-- ===== 顶栏 ===== -->
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <label>服务端目录:</label>
+      <input type="text" id="serverPath" placeholder="选择传奇服务端根目录" />
+      <button class="btn" id="btnBrowse">📁 浏览</button>
+      <div class="sep"></div>
+      <label>引擎类型:</label>
+      <select id="engineSelect">
+        <option>自动检测</option><option>HERO</option><option>GOM</option><option>GEE</option><option>BLUE</option>
+      </select>
+      <button class="btn" id="btnDetect">🔍 自动检测</button>
+      <button class="btn btn-gold" id="btnLoad">📂 加载爆率文件</button>
+    </div>
+  </div>
+
+  <!-- ===== 主体 ===== -->
+  <div class="main">
+    <!-- 左侧怪物列表（仅爆率修改页显示） -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-hdr">👹 怪物列表</div>
+      <div class="sidebar-list" id="monsterList"></div>
+    </div>
+
+    <!-- 右侧内容 -->
+    <div class="content">
+      <div class="tabs" id="tabBar">
+        <div class="tab active" data-tab="edit">📝 爆率修改</div>
+        <div class="tab" data-tab="sim">📊 爆率模拟</div>
+        <div class="tab" data-tab="log">📋 操作日志</div>
+        <div class="tab" data-tab="auth">🔑 授权管理</div>
+      </div>
+
+      <div class="tab-content">
+        <!-- ===== 爆率修改 ===== -->
+        <div class="tab-pane active" id="pane-edit">
+          <div class="edit-toolbar">
+            <button class="btn btn-sm" id="btnAdd">➕ 新增</button>
+            <button class="btn btn-sm" id="btnMul">✖️ 批量倍率</button>
+            <button class="btn btn-sm" id="btnSetProb">🎯 批量概率</button>
+            <button class="btn btn-sm" id="btnAnomaly">⚠️ 异常检测</button>
+            <div class="sep"></div>
+            <button class="btn btn-sm" id="btnBackup">💾 备份文件</button>
+            <button class="btn btn-sm" id="btnBackupAll">📦 备份目录</button>
+            <div style="flex:1"></div>
+            <button class="btn btn-sm btn-gold" id="btnSave">💾 保存</button>
+          </div>
+          <div class="entry-list" id="entryList"></div>
+        </div>
+
+        <!-- ===== 爆率模拟 ===== -->
+        <div class="tab-pane" id="pane-sim">
+          <div class="sim-filter">
+            <div class="filter-group">
+              <label class="grp-title">👹 怪物</label>
+              <div class="opts">
+                <span class="radio selected" data-group="monster" data-val="all">所有怪物</span>
+                <span class="radio" data-group="monster" data-val="spec">指定怪物</span>
+                <span class="badge" id="monsterCount">(0)</span>
+              </div>
+            </div>
+            <div class="filter-group">
+              <label class="grp-title">📦 物品</label>
+              <div class="opts">
+                <span class="radio selected" data-group="item" data-val="all">所有物品</span>
+                <span class="radio" data-group="item" data-val="spec">指定物品</span>
+                <span class="badge" id="itemCount">(0)</span>
+              </div>
+            </div>
+            <div class="filter-group">
+              <label class="grp-title">🗺️ 地图</label>
+              <div class="opts">
+                <span class="radio selected" data-group="map" data-val="all">所有地图</span>
+                <span class="radio" data-group="map" data-val="spec">指定地图</span>
+                <span class="badge" id="mapCount">(0)</span>
+              </div>
+            </div>
+          </div>
+          <div class="sim-params">
+            <label>模拟时长(h):</label>
+            <input type="text" id="simDuration" value="24" />
+            <label>消灭比例(%):</label>
+            <input type="text" id="simKillRatio" value="50" />
+            <label class="check"><input type="checkbox" id="simPity" /> 保底</label>
+            <label>连续空击杀:</label>
+            <input type="text" id="simPityVal" value="100" />
+            <label>模拟轮数:</label>
+            <input type="text" id="simRunCount" value="1" />
+            <div style="flex:1"></div>
+            <button class="btn btn-gold" id="btnSim">▶ 开始模拟</button>
+          </div>
+          <div class="sim-results">
+            <div class="result-tables">
+              <div class="result-col" id="colItem">
+                <div class="result-col-hdr sticky"><span>📋 掉落物品列表</span><input type="text" class="search" id="searchItem" placeholder="搜索物品..." /></div>
+                <div class="col-body" id="itemTableBody"></div>
+              </div>
+              <div class="result-col" id="colMap">
+                <div class="result-col-hdr sticky"><span>🗺️ 掉落地图列表</span><input type="text" class="search" id="searchMap" placeholder="搜索地图..." /></div>
+                <div class="col-body" id="mapTableBody"></div>
+              </div>
+              <div class="result-col" id="colMon">
+                <div class="result-col-hdr sticky"><span>👹 掉落怪物列表</span><input type="text" class="search" id="searchMon" placeholder="搜索怪物..." /></div>
+                <div class="col-body" id="monTableBody"></div>
+              </div>
+            </div>
+            <div class="tracker" id="trackerPanel">
+              <div class="tracker-title">✨ 稀有物品追踪</div>
+              <div class="tracker-items" id="trackerItems"></div>
+            </div>
+            <div class="summary-bar">
+              <span class="chip"><span class="dot gold"></span> <span id="sumKill">0</span></span>
+              <span class="chip"><span class="dot green"></span> <span id="sumDrop">0</span></span>
+              <span class="chip"><span class="dot blue"></span> <span id="sumEmpty">0%</span></span>
+              <span class="chip"><span class="dot purple"></span> <span id="sumTypes">0</span></span>
+              <div style="flex:1"></div>
+              <button class="btn btn-sm" id="btnExport">📤 导出结果</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 操作日志 ===== -->
+        <div class="tab-pane" id="pane-log">
+          <div class="log-hdr"><span style="font-weight:600">📋 操作记录</span><div style="flex:1"></div><button class="btn btn-sm" id="btnRefreshLog">🔄 刷新</button></div>
+          <div class="log-area" id="logArea">暂无操作记录</div>
+        </div>
+
+        <!-- ===== 授权管理 ===== -->
+        <div class="tab-pane" id="pane-auth">
+          <div class="auth-content">
+            <div class="auth-card">
+              <h3>💻 设备信息</h3>
+              <div class="auth-row">
+                <label>机器码:</label>
+                <div class="machine-code" id="machineCode">-</div>
+                <button class="btn btn-sm" id="btnCopyCode">📋 复制</button>
+              </div>
+            </div>
+            <div class="auth-card">
+              <h3>🔑 授权状态</h3>
+              <div class="auth-row">
+                <label>状态:</label>
+                <span class="status-badge" id="licenseStatus">未激活</span>
+              </div>
+              <div class="auth-row">
+                <label>激活码:</label>
+                <input type="text" id="activateCode" placeholder="输入激活码" />
+                <button class="btn btn-gold btn-sm" id="btnActivate">激活</button>
+              </div>
+            </div>
+            <div class="auth-card">
+              <h3>📖 授权说明</h3>
+              <div class="help-text">1. 复制本机机器码<br/>2. 联系管理员获取激活码<br/>3. 输入激活码完成绑定<br/>4. 一机一码，绑定后不可随意更换设备<br/><br/><span style="color:#d4a843">当前为开发模式，所有功能可用</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 状态栏 ===== -->
+  <div class="statusbar">
+    <span id="statusText">就绪 - 请选择传奇服务端目录</span>
+    <span class="version">v2.0.0</span>
+  </div>
+</div>
+
+<!-- ===== 模态框 ===== -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modal">
+    <div class="modal-hdr"><span id="modalTitle">标题</span><button class="modal-close" id="modalClose">&times;</button></div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+
+<script src="main.js"></script>
+</body>
+</html>

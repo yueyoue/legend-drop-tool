@@ -18,34 +18,19 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          cache: false
+          cache: true
 
-      - name: Set up GCC
-        uses: bwoodsend/setup-winlibs-action@v1
-
-      - name: Clean Go cache
-        run: go clean -cache -modcache -testcache
-
-      - name: Install dependencies
-        env:
-          GONOSUMCHECK: "*"
-          GONOSUMDB: "*"
-          GOFLAGS: "-mod=mod"
-        run: go mod tidy
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Build Windows amd64
-        env:
-          GOOS: windows
-          GOARCH: amd64
-          CGO_ENABLED: 1
-        run: go build -a -ldflags "-s -w -H windowsgui" -o legend-drop-tool.exe ./cmd/
+        run: wails build -platform windows/amd64 -o legend-drop-tool.exe -ldflags "-s -w"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: legend-drop-tool-windows-amd64
-          path: |
-            legend-drop-tool.exe
+          path: build/bin/legend-drop-tool.exe
 
   release:
     needs: build-windows
