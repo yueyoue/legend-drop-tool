@@ -395,8 +395,6 @@ func (a *App) DetectAnomaly() []AnomalyInfo {
 type SimRequest struct {
 	DurationHours float64  `json:"durationHours"`
 	KillRatioPct  float64  `json:"killRatioPct"`
-	PityEnabled   bool     `json:"pityEnabled"`
-	PityThreshold int      `json:"pityThreshold"`
 	RunCount      int      `json:"runCount"`
 	Monsters      []string `json:"monsters"`
 	Items         []string `json:"items"`
@@ -405,18 +403,20 @@ type SimRequest struct {
 
 // SimResponse 模拟结果
 type SimResponse struct {
-	TotalKills   int64           `json:"totalKills"`
-	TotalDrops   int64           `json:"totalDrops"`
-	EmptyRate    float64         `json:"emptyRate"`
-	Duration     string          `json:"duration"`
-	ItemStats    []SimItemStat   `json:"itemStats"`
-	MapStats     []SimMapStat    `json:"mapStats"`
-	MonsterStats []SimMonsterStat `json:"monsterStats"`
-	RunCount     int             `json:"runCount"`
-	AvgDrops     float64         `json:"avgDrops"`
-	MinDrops     int64           `json:"minDrops"`
-	MaxDrops     int64           `json:"maxDrops"`
-	AvgEmptyRate float64         `json:"avgEmptyRate"`
+	TotalKills      int64                        `json:"totalKills"`
+	TotalDrops      int64                        `json:"totalDrops"`
+	EmptyRate       float64                      `json:"emptyRate"`
+	Duration        string                       `json:"duration"`
+	ItemStats       []SimItemStat                `json:"itemStats"`
+	MapStats        []SimMapStat                 `json:"mapStats"`
+	MonsterStats    []SimMonsterStat             `json:"monsterStats"`
+	ItemMonsterDrops map[string]map[string]int64 `json:"itemMonsterDrops"`
+	ItemMapDrops     map[string]map[string]int64 `json:"itemMapDrops"`
+	RunCount        int                          `json:"runCount"`
+	AvgDrops        float64                      `json:"avgDrops"`
+	MinDrops        int64                        `json:"minDrops"`
+	MaxDrops        int64                        `json:"maxDrops"`
+	AvgEmptyRate    float64                      `json:"avgEmptyRate"`
 }
 
 type SimItemStat struct {
@@ -446,9 +446,6 @@ func (a *App) RunSimulation(req SimRequest) (*SimResponse, error) {
 	if killRatio < 0 || killRatio > 1 {
 		return nil, fmt.Errorf("消灭比例必须在0~100之间")
 	}
-	if req.PityThreshold <= 0 {
-		req.PityThreshold = 100
-	}
 	if req.RunCount <= 0 {
 		req.RunCount = 1
 	}
@@ -459,8 +456,6 @@ func (a *App) RunSimulation(req SimRequest) (*SimResponse, error) {
 		RefreshInterval: 60,
 		RefreshCount:    10,
 		MapRateModifier: 1.0,
-		PityEnabled:     req.PityEnabled,
-		PityThreshold:   req.PityThreshold,
 		RunCount:        req.RunCount,
 		MonsterFilter:   req.Monsters,
 		ItemFilter:      req.Items,
@@ -526,6 +521,10 @@ func (a *App) RunSimulation(req SimRequest) (*SimResponse, error) {
 		sort.Slice(resp.MonsterStats, func(i, j int) bool {
 			return resp.MonsterStats[i].DropCount > resp.MonsterStats[j].DropCount
 		})
+
+		// 物品→怪物掉落数 和 物品→地图掉落数（用于点击物品后联动筛选）
+		resp.ItemMonsterDrops = simResult.ItemMonsterDrops
+		resp.ItemMapDrops = simResult.ItemMapDrops
 	}
 
 	if req.RunCount > 1 {

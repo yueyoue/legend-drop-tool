@@ -301,8 +301,6 @@ function initSimTab() {
       const req = {
         durationHours: +$('simDuration').value,
         killRatioPct: +$('simKillRatio').value,
-        pityEnabled: $('simPity').checked,
-        pityThreshold: +$('simPityVal').value,
         runCount: +$('simRunCount').value,
         monsters: filterMonsters,
         items: filterItems,
@@ -332,8 +330,8 @@ function initSimTab() {
 }
 
 function renderSimResult(r) {
-  // 物品表
-  renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]));
+  // 物品表（支持点击筛选）
+  renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]), 'item', r);
   // 地图表
   renderCol('mapTableBody', ['地图名称','掉落数量'], r.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]));
   // 怪物表
@@ -348,13 +346,55 @@ function renderSimResult(r) {
   $('trackerItems').innerHTML = rare.map(s => `<span class="tracker-item">${s.itemName} ×${fmtNum(s.dropCount)} (${(s.prob*100).toFixed(3)}%)</span>`).join('');
 }
 
-function renderCol(bodyId, headers, rows) {
+function renderCol(bodyId, headers, rows, type, simData) {
   const body = $(bodyId);
   let html = `<div class="rrow hdr"><span class="lbl">${headers[0]}</span><span class="val">${headers[1]}</span></div>`;
-  rows.forEach(r => {
-    html += `<div class="rrow"><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
+  rows.forEach((r, i) => {
+    const clickAttr = type === 'item' ? ` data-idx="${i}" style="cursor:pointer"` : '';
+    html += `<div class="rrow"${clickAttr}><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
   });
   body.innerHTML = html;
+  // 物品行点击 → 筛选地图和怪物
+  if (type === 'item' && simData) {
+    body.querySelectorAll('.rrow[data-idx]').forEach(el => {
+      el.onclick = () => {
+        const idx = parseInt(el.dataset.idx);
+        const itemName = simData.itemStats[idx].itemName;
+        // 高亮选中行
+        body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
+        el.classList.add('selected');
+        // 筛选地图和怪物
+        filterByItem(itemName, simData);
+      };
+    });
+  }
+}
+
+function filterByItem(itemName, simData) {
+  // 筛选地图
+  const mapDrops = (simData.itemMapDrops || {})[itemName] || {};
+  const mapRows = Object.entries(mapDrops)
+    .map(([name, cnt]) => [name, fmtNum(cnt)])
+    .sort((a, b) => parseInt(b[1].replace(/,/g,'')) - parseInt(a[1].replace(/,/g,'')));
+  renderCol('mapTableBody', ['地图名称','掉落数量'], mapRows);
+
+  // 筛选怪物
+  const monDrops = (simData.itemMonsterDrops || {})[itemName] || {};
+  const monRows = [];
+  for (const [monName, dropCnt] of Object.entries(monDrops)) {
+    // 从全局怪物统计中找击杀数
+    const ms = (simData.monsterStats || []).find(m => m.monsterName === monName);
+    const killCnt = ms ? ms.killCount : 0;
+    monRows.push([monName, `${fmtNum(killCnt)} / ${fmtNum(dropCnt)}`]);
+  }
+  monRows.sort((a, b) => {
+    const da = parseInt(a[1].split('/')[1].trim().replace(/,/g,''));
+    const db = parseInt(b[1].split('/')[1].trim().replace(/,/g,''));
+    return db - da;
+  });
+  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows);
+
+  setStatus(`已选中物品: ${itemName} | 地图:${mapRows.length}个 怪物:${monRows.length}个`);
 }
 
 function filterTable(bodyId, query) {
@@ -545,6 +585,7 @@ function renderTuneSources() {
   if (!tuneAnalysis) return;
   $('tuneSourceCount').textContent = `(${tuneAnalysis.sources.length}个来源)`;
   let html = `<table class="tune-table">
+    <colgroup><col style="width:22%"><col style="width:22%"><col style="width:14%"><col style="width:10%"><col style="width:16%"><col style="width:16%"></colgroup>
     <tr><th>地图</th><th>怪物</th><th>爆率</th><th>数量</th><th>每小时怪数</th><th>期望(小时/个)</th></tr>`;
   tuneAnalysis.sources.forEach(s => {
     const timeCls = s.expectHours <= 2 ? 'time-good' : s.expectHours <= 10 ? 'time-warn' : 'time-bad';
@@ -589,6 +630,7 @@ function renderTuneRecommend() {
   if (!tuneRecommend) return;
   $('tuneRecommendCount').textContent = `(${tuneRecommend.length}条)`;
   let html = `<table class="tune-table">
+    <colgroup><col style="width:25%"><col style="width:25%"><col style="width:16%"><col style="width:18%"><col style="width:16%"></colgroup>
     <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th></tr>`;
   tuneRecommend.forEach((c, i) => {
     const oldProb = c.oldNum + '/' + c.oldDen;
