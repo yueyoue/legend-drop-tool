@@ -6,6 +6,11 @@ let currentMonsterIdx = -1;
 let monsters = [];
 let simResult = null;
 let logEntries = [];
+let simItemMonsterDrops = {};  // [item][monster]count
+let simItemMapDrops = {};      // [item][map]count
+let simItemMonsterMapDrops = {}; // [item][monster][map]count
+let selectedSimItem = '';      // 当前选中的模拟物品
+let selectedSimMap = '';       // 当前选中的模拟地图
 
 // ===== DOM =====
 const $ = id => document.getElementById(id);
@@ -309,6 +314,11 @@ function initSimTab() {
         maps: filterMaps
       };
       simResult = await window.go.app.App.RunSimulation(req);
+      simItemMonsterDrops = simResult.itemMonsterDrops || {};
+      simItemMapDrops = simResult.itemMapDrops || {};
+      simItemMonsterMapDrops = simResult.itemMonsterMapDrops || {};
+      selectedSimItem = '';
+      selectedSimMap = '';
       renderSimResult(simResult);
       setStatus(`模拟完成 — 击杀:${simResult.totalKills} 掉落:${simResult.totalDrops} 空爆率:${(simResult.emptyRate*100).toFixed(1)}%`);
       addLog(`模拟完成: ${simResult.totalKills}击杀 ${simResult.totalDrops}掉落`);
@@ -332,12 +342,14 @@ function initSimTab() {
 }
 
 function renderSimResult(r) {
-  // 物品表
-  renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]));
-  // 地图表（可点击）
-  renderMapCol('mapTableBody', r.mapStats);
-  // 怪物表
-  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], r.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]));
+  selectedSimItem = '';
+  selectedSimMap = '';
+  // 物品表（可点击级联）
+  renderItemCol(r.itemStats);
+  // 地图表（初始显示全部）
+  renderMapCol(r.mapStats);
+  // 怪物表（初始显示全部）
+  renderMonCol(r.monsterStats);
   // 统计
   $('sumKill').textContent = '总击杀: ' + fmtNum(r.totalKills);
   $('sumDrop').textContent = '总掉落: ' + fmtNum(r.totalDrops);
@@ -348,41 +360,136 @@ function renderSimResult(r) {
   $('trackerItems').innerHTML = rare.map(s => `<span class="tracker-item">${s.itemName} ×${fmtNum(s.dropCount)} (${(s.prob*100).toFixed(3)}%)</span>`).join('');
 }
 
-function renderCol(bodyId, headers, rows) {
-  const body = $(bodyId);
-  let html = `<div class="rrow hdr"><span class="lbl">${headers[0]}</span><span class="val">${headers[1]}</span></div>`;
-  rows.forEach(r => {
-    html += `<div class="rrow"><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
+// 物品列：点击物品 → 级联更新地图和怪物
+function renderItemCol(itemStats) {
+  const body = $('itemTableBody');
+  let html = `<div class="rrow hdr"><span class="lbl">物品名称</span><span class="val">掉落数量</span></div>`;
+  itemStats.forEach(s => {
+    html += `<div class="rrow sim-item" data-item="${s.itemName}"><span class="lbl">${s.itemName}</span><span class="val">${fmtNum(s.dropCount)}</span></div>`;
+  });
+  body.innerHTML = html;
+  body.querySelectorAll('.sim-item').forEach(row => {
+    row.addEventListener('click', () => {
+      const itemName = row.dataset.item;
+      // 切换选中
+      if (selectedSimItem === itemName) {
+        selectedSimItem = '';
+        selectedSimMap = '';
+      } else {
+        selectedSimItem = itemName;
+        selectedSimMap = '';
+      }
+      updateSimCascade();
+    });
+  });
+}
+
+// 地图列：点击地图 → 级联更新怪物（需先选物品）
+function renderMapCol(mapStats) {
+  const body = $('mapTableBody');
+  let html = `<div class="rrow hdr"><span class="lbl">地图名称</span><span class="val">掉落数量</span></div>`;
+  mapStats.forEach(s => {
+    html += `<div class="rrow sim-map" data-map="${s.mapName}"><span class="lbl">${s.mapName}</span><span class="val">${fmtNum(s.dropCount)}</span></div>`;
+  });
+  body.innerHTML = html;
+  body.querySelectorAll('.sim-map').forEach(row => {
+    row.addEventListener('click', () => {
+      const mapName = row.dataset.map;
+      if (selectedSimMap === mapName) {
+        selectedSimMap = '';
+      } else {
+        selectedSimMap = mapName;
+      }
+      updateSimCascade();
+    });
+  });
+}
+
+// 怪物列
+function renderMonCol(monsterStats) {
+  const body = $('monTableBody');
+  let html = `<div class="rrow hdr"><span class="lbl">怪物名称</span><span class="val">击杀 / 掉落</span></div>`;
+  monsterStats.forEach(s => {
+    html += `<div class="rrow"><span class="lbl">${s.monsterName}</span><span class="val">${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}</span></div>`;
   });
   body.innerHTML = html;
 }
 
-function renderMapCol(bodyId, mapStats) {
-  const body = $(bodyId);
-  let html = `<div class="rrow hdr"><span class="lbl">地图名称</span><span class="val">掉落数量</span></div>`;
-  mapStats.forEach(s => {
-    html += `<div class="rrow clickable" data-map="${s.mapName}"><span class="lbl">${s.mapName}</span><span class="val">${fmtNum(s.dropCount)}</span><span class="map-detail" id="mapDetail_${CSS.escape(s.mapName)}"></span></div>`;
+// 级联更新：根据选中的物品和地图，更新三列显示
+function updateSimCascade() {
+  // 高亮物品列
+  document.querySelectorAll('#itemTableBody .sim-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.item === selectedSimItem);
   });
-  body.innerHTML = html;
-  // 绑定点击事件
-  body.querySelectorAll('.rrow.clickable').forEach(row => {
-    row.addEventListener('click', async () => {
-      const mapName = row.dataset.map;
-      const detailEl = row.querySelector('.map-detail');
-      if (detailEl.innerHTML) {
-        detailEl.innerHTML = '';
-        return;
+
+  if (!selectedSimItem) {
+    // 没选物品 → 恢复全部显示
+    renderMapCol(simResult.mapStats);
+    renderMonCol(simResult.monsterStats);
+    return;
+  }
+
+  // 选了物品 → 更新地图列（只显示该物品掉落的地图）
+  const itemMapData = simItemMapDrops[selectedSimItem] || {};
+  const filteredMapStats = Object.entries(itemMapData)
+    .map(([name, count]) => ({ mapName: name, dropCount: count }))
+    .sort((a, b) => b.dropCount - a.dropCount);
+
+  const mapBody = $('mapTableBody');
+  let mapHtml = `<div class="rrow hdr"><span class="lbl">地图名称</span><span class="val">掉落数量</span></div>`;
+  filteredMapStats.forEach(s => {
+    const cls = s.mapName === selectedSimMap ? ' active' : '';
+    mapHtml += `<div class="rrow sim-map${cls}" data-map="${s.mapName}"><span class="lbl">${s.mapName}</span><span class="val">${fmtNum(s.dropCount)}</span></div>`;
+  });
+  mapBody.innerHTML = mapHtml;
+  mapBody.querySelectorAll('.sim-map').forEach(row => {
+    row.addEventListener('click', () => {
+      if (selectedSimMap === row.dataset.map) {
+        selectedSimMap = '';
+      } else {
+        selectedSimMap = row.dataset.map;
       }
-      try {
-        const monsters = await window.go.app.App.GetMonstersOnMap(mapName);
-        if (monsters && monsters.length > 0) {
-          detailEl.innerHTML = monsters.map(m => `<span class="map-mon-tag">${m}</span>`).join('');
-        } else {
-          detailEl.innerHTML = '<span style="color:var(--t3);font-size:11px">无刷怪数据</span>';
-        }
-      } catch(e) { detailEl.innerHTML = '<span style="color:var(--danger);font-size:11px">查询失败</span>'; }
+      updateSimCascade();
     });
   });
+
+  // 更新怪物列
+  const monBody = $('monTableBody');
+  let monHtml = `<div class="rrow hdr"><span class="lbl">怪物名称</span><span class="val">击杀 / 掉落</span></div>`;
+
+  if (selectedSimMap && simItemMonsterMapDrops[selectedSimItem]) {
+    // 选了物品+地图 → 只显示该地图上掉落该物品的怪物
+    const monsterMapData = simItemMonsterMapDrops[selectedSimItem];
+    const monEntries = [];
+    Object.entries(monsterMapData).forEach(([monName, mapData]) => {
+      if (mapData[selectedSimMap]) {
+        // 找击杀数
+        const monStat = (simResult.monsterStats || []).find(m => m.monsterName === monName);
+        monEntries.push({
+          monsterName: monName,
+          killCount: monStat ? monStat.killCount : 0,
+          dropCount: mapData[selectedSimMap]
+        });
+      }
+    });
+    monEntries.sort((a, b) => b.dropCount - a.dropCount);
+    monEntries.forEach(s => {
+      monHtml += `<div class="rrow"><span class="lbl">${s.monsterName}</span><span class="val">${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}</span></div>`;
+    });
+  } else {
+    // 只选了物品 → 显示所有掉落该物品的怪物
+    const itemMonData = simItemMonsterDrops[selectedSimItem] || {};
+    const monEntries = Object.entries(itemMonData)
+      .map(([name, count]) => {
+        const monStat = (simResult.monsterStats || []).find(m => m.monsterName === name);
+        return { monsterName: name, killCount: monStat ? monStat.killCount : 0, dropCount: count };
+      })
+      .sort((a, b) => b.dropCount - a.dropCount);
+    monEntries.forEach(s => {
+      monHtml += `<div class="rrow"><span class="lbl">${s.monsterName}</span><span class="val">${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}</span></div>`;
+    });
+  }
+  monBody.innerHTML = monHtml;
 }
 
 function filterTable(bodyId, query) {
@@ -486,7 +593,6 @@ function updateFilterBadges() {
 // ===== 爆率调配 =====
 let tuneAnalysis = null;
 let tuneRecommend = null;
-let tuneUsingSim = false; // 是否使用了模拟数据
 
 function initTuneTab() {
   // 可搜索物品选择器
@@ -519,8 +625,6 @@ function initTuneTab() {
     try {
       tuneAnalysis = await window.go.app.App.AnalyzeItemDrops(itemName);
       tuneRecommend = null;
-      // 判断数据来源
-      tuneUsingSim = simResult != null;
       renderTuneSourceNote();
       renderTuneSources();
       renderTuneTargets();
@@ -603,7 +707,7 @@ function filterTuneItems() {
 
 function renderTuneSourceNote() {
   const note = $('tuneSourceNote');
-  if (tuneUsingSim) {
+  if (tuneAnalysis && tuneAnalysis.fromSim) {
     note.innerHTML = '💡 数据来源：<b style="color:var(--success)">模拟爆率</b> — 基于最近一次模拟结果分析，数据更贴近实际游戏表现';
     note.style.borderLeftColor = 'var(--success)';
   } else {

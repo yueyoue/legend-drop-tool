@@ -93,7 +93,9 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 .rrow .lbl{color:var(--t1)}.rrow .val{color:var(--accent);font-family:'Cascadia Code','Consolas',monospace;text-align:right;min-width:60px}
 .rrow.hdr{background:var(--bg2);font-weight:600;color:var(--t2);cursor:default}
 .rrow.clickable{cursor:pointer;flex-direction:column;align-items:flex-start;gap:4px}
-.rrow.clickable:hover{background:var(--active)}
+.rrow.clickable:hover,.rrow.sim-item:hover,.rrow.sim-map:hover{background:var(--active)}
+.rrow.sim-item,.rrow.sim-map{cursor:pointer}
+.rrow.active{background:var(--active);border-left:3px solid var(--accent)}
 .map-detail{display:flex;flex-wrap:wrap;gap:4px;width:100%;padding:2px 0}
 .map-mon-tag{padding:1px 6px;border-radius:8px;font-size:10px;background:rgba(91,157,240,.12);color:var(--info);border:1px solid rgba(91,157,240,.2)}
 .tracker{padding:8px 16px;background:var(--bg1);border-top:1px solid var(--border);flex-shrink:0;max-height:80px;overflow-y:auto}

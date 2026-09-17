@@ -417,6 +417,11 @@ type SimResponse struct {
 	MinDrops     int64           `json:"minDrops"`
 	MaxDrops     int64           `json:"maxDrops"`
 	AvgEmptyRate float64         `json:"avgEmptyRate"`
+
+	// 级联筛选数据
+	ItemMonsterDrops    map[string]map[string]int64            `json:"itemMonsterDrops"`
+	ItemMapDrops        map[string]map[string]int64            `json:"itemMapDrops"`
+	ItemMonsterMapDrops map[string]map[string]map[string]int64 `json:"itemMonsterMapDrops"`
 }
 
 type SimItemStat struct {
@@ -533,6 +538,13 @@ func (a *App) RunSimulation(req SimRequest) (*SimResponse, error) {
 		resp.MinDrops = multiResult.MinTotalDrops
 		resp.MaxDrops = multiResult.MaxTotalDrops
 		resp.AvgEmptyRate = multiResult.AvgEmptyRate
+	}
+
+	// 级联筛选数据
+	if simResult != nil {
+		resp.ItemMonsterDrops = simResult.ItemMonsterDrops
+		resp.ItemMapDrops = simResult.ItemMapDrops
+		resp.ItemMonsterMapDrops = simResult.ItemMonsterMapDrops
 	}
 
 	return resp, nil
@@ -765,6 +777,7 @@ type RateAnalysis struct {
 	Sources      []ItemDropSource `json:"sources"`
 	TotalKPH     float64          `json:"totalKph"`      // 所有来源总每小时杀怪数
 	TotalExpectH float64          `json:"totalExpectH"`  // 综合期望小时
+	FromSim      bool             `json:"fromSim"`       // 是否来自模拟数据
 }
 
 // RateChange 单条爆率修改建议
@@ -793,7 +806,13 @@ type CopyResult struct {
 	Message  string `json:"message"`
 }
 
+// HasSimResult 检查是否有模拟结果
+func (a *App) HasSimResult() bool {
+	return a.simResult != nil
+}
+
 // AnalyzeItemDrops 分析指定物品的所有掉落来源
+// 有模拟结果时使用模拟数据（更准确），否则用爆率文件+MonGen计算
 func (a *App) AnalyzeItemDrops(itemName string) (*RateAnalysis, error) {
 	if a.currentResults == nil {
 		return nil, fmt.Errorf("请先加载爆率文件")
@@ -805,6 +824,140 @@ func (a *App) AnalyzeItemDrops(itemName string) (*RateAnalysis, error) {
 	analysis := &RateAnalysis{
 		ItemName: itemName,
 	}
+
+	// 优先使用模拟数据
+	if a.simResult != nil {
+		return a.analyzeItemDropsFromSim(itemName, analysis)
+	}
+
+	// 纯文件计算
+	return a.analyzeItemDropsFromFile(itemName, analysis)
+}
+
+// analyzeItemDropsFromSim 使用模拟数据分析
+func (a *App) analyzeItemDropsFromSim(itemName string, analysis *RateAnalysis) (*RateAnalysis, error) {
+	analysis.FromSim = true
+
+	// 从模拟结果获取数据
+	monsterDrops := a.simResult.ItemMonsterDrops[itemName]
+	mapDrops := a.simResult.ItemMapDrops[itemName]
+	monsterMapDrops := a.simResult.ItemMonsterMapDrops[itemName]
+
+	if len(monsterDrops) == 0 {
+		return nil, fmt.Errorf("模拟结果中未找到物品「%s」的掉落数据", itemName)
+	}
+
+	// 构建怪物→地图映射
+	monsterToMap := make(map[string]string)
+	for _, e := range a.monGenEntries {
+		if _, ok := monsterDrops[e.MonsterName]; ok {
+			monsterToMap[e.MonsterName] = e.MapName
+		}
+	}
+
+	// 每个怪物的数据
+	totalKills := a.simResult.TotalKills
+	durationH := a.simResult.Duration.Hours()
+	if durationH <= 0 {
+		durationH = 1
+	}
+
+	for monsterName, dropCount := range monsterDrops {
+		mapName := monsterToMap[monsterName]
+		if mapName == "" {
+			mapName = "未知地图"
+		}
+		displayMap := mapName
+		if a.mapInfoLookup != nil {
+			if desc, ok := a.mapInfoLookup[mapName]; ok && desc != "" {
+				displayMap = mapName + " (" + desc + ")"
+			}
+		}
+
+		// 查找对应的爆率文件条目获取爆率
+		var probNum, probDen, qty int
+		var mi, ei int
+		for idx, r := range a.currentResults {
+			if r.File.MonsterName == monsterName {
+				mi = idx
+				for j, e := range r.File.Entries {
+					if e.IsEditable() && e.ItemName == itemName {
+						probNum = e.ProbabilityNumerator
+						probDen = e.ProbabilityDenominator
+						qty = e.Quantity
+						ei = j
+						break
+					}
+				}
+				break
+				}
+		}
+
+		// 模拟实际每小时掉落数
+		simDropsPerHour := float64(dropCount) / durationH
+		var expectH float64
+		if simDropsPerHour > 0 {
+			expectH = 1.0 / simDropsPerHour
+		} else {
+			expectH = 999999
+		}
+
+		// 该怪物在该地图的模拟杀怪数
+		var monsterKills int64
+		if a.simResult.MonsterStats != nil {
+			for _, ms := range a.simResult.MonsterStats {
+				if ms.MonsterName == monsterName {
+					monsterKills = ms.KillCount
+					break
+				}
+			}
+		}
+		kph := float64(monsterKills) / durationH
+
+		analysis.Sources = append(analysis.Sources, ItemDropSource{
+			MonsterName:  monsterName,
+			MonsterIndex: mi,
+			EntryIndex:   ei,
+			MapName:      displayMap,
+			ProbNum:      probNum,
+			ProbDen:      probDen,
+			ProbStr:      fmt.Sprintf("%d/%d", probNum, probDen),
+			Quantity:     qty,
+			KillPerHour:  kph,
+			ExpectHours:  expectH,
+		})
+
+		analysis.TotalKPH += kph
+	}
+
+	// 按地图排序
+	sort.Slice(analysis.Sources, func(i, j int) bool {
+		if analysis.Sources[i].MapName != analysis.Sources[j].MapName {
+			return analysis.Sources[i].MapName < analysis.Sources[j].MapName
+		}
+		return analysis.Sources[i].ExpectHours < analysis.Sources[j].ExpectHours
+	})
+
+	// 综合期望
+	if mapDrops != nil {
+		totalDropCount := int64(0)
+		for _, c := range mapDrops {
+			totalDropCount += c
+		}
+		simTotalDropsPerHour := float64(totalDropCount) / durationH
+		if simTotalDropsPerHour > 0 {
+			analysis.TotalExpectH = 1.0 / simTotalDropsPerHour
+		} else {
+			analysis.TotalExpectH = 999999
+		}
+	}
+
+	_ = monsterMapDrops // 保留，后续可用于更细粒度分析
+	return analysis, nil
+}
+
+// analyzeItemDropsFromFile 使用爆率文件+MonGen计算
+func (a *App) analyzeItemDropsFromFile(itemName string, analysis *RateAnalysis) (*RateAnalysis, error) {
 
 	for mi, r := range a.currentResults {
 		monsterName := r.File.MonsterName
