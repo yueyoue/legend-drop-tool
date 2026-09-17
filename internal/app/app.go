@@ -856,7 +856,6 @@ func (a *App) analyzeItemDropsFromSim(itemName string, analysis *RateAnalysis) (
 	}
 
 	// 每个怪物的数据
-	totalKills := a.simResult.TotalKills
 	durationH := a.simResult.Duration.Hours()
 	if durationH <= 0 {
 		durationH = 1
