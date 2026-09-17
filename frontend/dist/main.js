@@ -334,8 +334,8 @@ function initSimTab() {
 function renderSimResult(r) {
   // 物品表
   renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]));
-  // 地图表
-  renderCol('mapTableBody', ['地图名称','掉落数量'], r.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]));
+  // 地图表（可点击）
+  renderMapCol('mapTableBody', r.mapStats);
   // 怪物表
   renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], r.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]));
   // 统计
@@ -355,6 +355,34 @@ function renderCol(bodyId, headers, rows) {
     html += `<div class="rrow"><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
   });
   body.innerHTML = html;
+}
+
+function renderMapCol(bodyId, mapStats) {
+  const body = $(bodyId);
+  let html = `<div class="rrow hdr"><span class="lbl">地图名称</span><span class="val">掉落数量</span></div>`;
+  mapStats.forEach(s => {
+    html += `<div class="rrow clickable" data-map="${s.mapName}"><span class="lbl">${s.mapName}</span><span class="val">${fmtNum(s.dropCount)}</span><span class="map-detail" id="mapDetail_${CSS.escape(s.mapName)}"></span></div>`;
+  });
+  body.innerHTML = html;
+  // 绑定点击事件
+  body.querySelectorAll('.rrow.clickable').forEach(row => {
+    row.addEventListener('click', async () => {
+      const mapName = row.dataset.map;
+      const detailEl = row.querySelector('.map-detail');
+      if (detailEl.innerHTML) {
+        detailEl.innerHTML = '';
+        return;
+      }
+      try {
+        const monsters = await window.go.app.App.GetMonstersOnMap(mapName);
+        if (monsters && monsters.length > 0) {
+          detailEl.innerHTML = monsters.map(m => `<span class="map-mon-tag">${m}</span>`).join('');
+        } else {
+          detailEl.innerHTML = '<span style="color:var(--t3);font-size:11px">无刷怪数据</span>';
+        }
+      } catch(e) { detailEl.innerHTML = '<span style="color:var(--danger);font-size:11px">查询失败</span>'; }
+    });
+  });
 }
 
 function filterTable(bodyId, query) {
@@ -458,15 +486,42 @@ function updateFilterBadges() {
 // ===== 爆率调配 =====
 let tuneAnalysis = null;
 let tuneRecommend = null;
+let tuneUsingSim = false; // 是否使用了模拟数据
 
 function initTuneTab() {
+  // 可搜索物品选择器
+  const searchInput = $('tuneItemSearch');
+  const selectEl = $('tuneItemSelect');
+
+  searchInput.addEventListener('focus', () => {
+    filterTuneItems();
+    selectEl.classList.add('show');
+  });
+  searchInput.addEventListener('input', () => {
+    filterTuneItems();
+    selectEl.classList.add('show');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.tune-search-wrap')) selectEl.classList.remove('show');
+  });
+  selectEl.addEventListener('click', (e) => {
+    if (e.target.tagName === 'OPTION' && e.target.value) {
+      searchInput.value = e.target.textContent;
+      selectEl.value = e.target.value;
+      selectEl.classList.remove('show');
+    }
+  });
+
   // 分析按钮
   $('btnAnalyze').onclick = async () => {
-    const itemName = $('tuneItemSelect').value;
-    if (!itemName) return setStatus('请选择物品');
+    const itemName = selectEl.value || searchInput.value.trim();
+    if (!itemName) return setStatus('请选择或输入物品名称');
     try {
       tuneAnalysis = await window.go.app.App.AnalyzeItemDrops(itemName);
       tuneRecommend = null;
+      // 判断数据来源
+      tuneUsingSim = simResult != null;
+      renderTuneSourceNote();
       renderTuneSources();
       renderTuneTargets();
       $('tuneRecommendSection').style.display = 'none';
@@ -483,9 +538,7 @@ function initTuneTab() {
     document.querySelectorAll('.tune-target-card').forEach(card => {
       const mapName = card.dataset.map;
       const hours = parseFloat(card.querySelector('input').value) || 0;
-      if (hours > 0) {
-        targets.push({ mapName, targetHours: hours });
-      }
+      if (hours > 0) targets.push({ mapName, targetHours: hours });
     });
     if (targets.length === 0) return setStatus('请至少设置一个地图的目标时间');
     try {
@@ -493,7 +546,6 @@ function initTuneTab() {
       renderTuneRecommend();
       $('tuneRecommendSection').style.display = '';
       $('tuneCopySection').style.display = '';
-      // 填充复制目标物品列表
       await fillCopyTargets(itemName);
       setStatus(`已生成 ${tuneRecommend.length} 条推荐修改`);
     } catch(e) { setStatus('计算失败: ' + e); }
@@ -511,7 +563,6 @@ function initTuneTab() {
   // 应用推荐值
   $('btnApplyRecommend').onclick = async () => {
     if (!tuneRecommend) return setStatus('请先计算推荐爆率');
-    // 从表格读取用户可能修改过的值
     const rows = document.querySelectorAll('#tuneRecommendTable .rec-row');
     rows.forEach((row, i) => {
       if (i < tuneRecommend.length) {
@@ -541,30 +592,49 @@ function initTuneTab() {
   };
 }
 
+function filterTuneItems() {
+  const q = $('tuneItemSearch').value.toLowerCase();
+  const options = $('tuneItemSelect').querySelectorAll('option');
+  options.forEach(opt => {
+    if (!opt.value) return;
+    opt.style.display = opt.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+function renderTuneSourceNote() {
+  const note = $('tuneSourceNote');
+  if (tuneUsingSim) {
+    note.innerHTML = '💡 数据来源：<b style="color:var(--success)">模拟爆率</b> — 基于最近一次模拟结果分析，数据更贴近实际游戏表现';
+    note.style.borderLeftColor = 'var(--success)';
+  } else {
+    note.innerHTML = '⚠️ 数据来源：<b style="color:var(--accent)">爆率文件 + 刷怪文件</b> — 理论计算值，建议先运行「爆率模拟」获取更准确的数据';
+    note.style.borderLeftColor = 'var(--accent)';
+  }
+}
+
 function renderTuneSources() {
   if (!tuneAnalysis) return;
   $('tuneSourceCount').textContent = `(${tuneAnalysis.sources.length}个来源)`;
   let html = `<table class="tune-table">
-    <tr><th>地图</th><th>怪物</th><th>爆率</th><th>数量</th><th>每小时怪数</th><th>期望(小时/个)</th></tr>`;
+    <tr><th class="col-map">地图</th><th class="col-mon">怪物</th><th class="col-prob">爆率</th><th class="col-qty">数量</th><th class="col-kph">每小时怪数</th><th class="col-time">期望(小时/个)</th></tr>`;
   tuneAnalysis.sources.forEach(s => {
     const timeCls = s.expectHours <= 2 ? 'time-good' : s.expectHours <= 10 ? 'time-warn' : 'time-bad';
     html += `<tr>
-      <td>${s.mapName}</td>
-      <td>${s.monsterName}</td>
-      <td class="num prob">${s.probStr}</td>
-      <td class="num">${s.quantity}</td>
-      <td class="num">${s.killPerHour.toFixed(1)}</td>
-      <td class="num ${timeCls}">${s.expectHours.toFixed(1)}</td>
+      <td class="col-map" title="${s.mapName}">${s.mapName}</td>
+      <td class="col-mon" title="${s.monsterName}">${s.monsterName}</td>
+      <td class="col-prob num prob">${s.probStr}</td>
+      <td class="col-qty num">${s.quantity}</td>
+      <td class="col-kph num">${s.killPerHour.toFixed(1)}</td>
+      <td class="col-time num ${timeCls}">${s.expectHours.toFixed(1)}</td>
     </tr>`;
   });
-  html += `<tr style="font-weight:600;background:var(--bg2)"><td colspan="4">综合</td><td class="num">${tuneAnalysis.totalKph.toFixed(1)}</td><td class="num">${tuneAnalysis.totalExpectH.toFixed(1)}</td></tr>`;
+  html += `<tr style="font-weight:600;background:var(--bg2)"><td class="col-map" colspan="2">综合</td><td class="col-prob"></td><td class="col-qty"></td><td class="col-kph num">${tuneAnalysis.totalKph.toFixed(1)}</td><td class="col-time num">${tuneAnalysis.totalExpectH.toFixed(1)}</td></tr>`;
   html += '</table>';
   $('tuneSourceTable').innerHTML = html;
 }
 
 function renderTuneTargets() {
   if (!tuneAnalysis) return;
-  // 按地图去重
   const maps = [];
   const seen = new Set();
   tuneAnalysis.sources.forEach(s => {
@@ -589,15 +659,15 @@ function renderTuneRecommend() {
   if (!tuneRecommend) return;
   $('tuneRecommendCount').textContent = `(${tuneRecommend.length}条)`;
   let html = `<table class="tune-table">
-    <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th></tr>`;
-  tuneRecommend.forEach((c, i) => {
+    <tr><th class="col-map">地图</th><th class="col-mon">怪物</th><th class="col-prob">当前爆率</th><th class="col-qty">推荐爆率</th><th class="col-time">修改后期望</th></tr>`;
+  tuneRecommend.forEach((c) => {
     const oldProb = c.oldNum + '/' + c.oldDen;
     html += `<tr class="rec-row">
-      <td>${c.mapName}</td>
-      <td>${c.monsterName}</td>
-      <td class="num prob">${oldProb}</td>
-      <td class="num">${c.newNum}/<input type="text" class="rec-den" value="${c.newDen}" style="width:65px" /></td>
-      <td class="num">${c.newExpectH.toFixed(1)}h</td>
+      <td class="col-map" title="${c.mapName}">${c.mapName}</td>
+      <td class="col-mon" title="${c.monsterName}">${c.monsterName}</td>
+      <td class="col-prob num prob">${oldProb}</td>
+      <td class="col-qty num">${c.newNum}/<input type="text" class="rec-den" value="${c.newDen}" style="width:65px" /></td>
+      <td class="col-time num">${c.newExpectH.toFixed(1)}h</td>
     </tr>`;
   });
   html += '</table>';
@@ -618,12 +688,13 @@ async function fillCopyTargets(excludeItem) {
   } catch(e) { console.log('fillCopyTargets:', e); }
 }
 
-// 物品列表刷新（加载爆率文件后调用）
 async function refreshTuneItemList() {
   try {
     const allItems = await window.go.app.App.GetAllItemNames();
     const select = $('tuneItemSelect');
+    const search = $('tuneItemSearch');
     select.innerHTML = '<option value="">-- 请选择物品 --</option>';
+    search.value = '';
     (allItems || []).forEach(name => {
       const opt = document.createElement('option');
       opt.value = name;

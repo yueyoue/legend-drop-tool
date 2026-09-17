@@ -92,6 +92,10 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 .rrow:hover{background:var(--hover)}
 .rrow .lbl{color:var(--t1)}.rrow .val{color:var(--accent);font-family:'Cascadia Code','Consolas',monospace;text-align:right;min-width:60px}
 .rrow.hdr{background:var(--bg2);font-weight:600;color:var(--t2);cursor:default}
+.rrow.clickable{cursor:pointer;flex-direction:column;align-items:flex-start;gap:4px}
+.rrow.clickable:hover{background:var(--active)}
+.map-detail{display:flex;flex-wrap:wrap;gap:4px;width:100%;padding:2px 0}
+.map-mon-tag{padding:1px 6px;border-radius:8px;font-size:10px;background:rgba(91,157,240,.12);color:var(--info);border:1px solid rgba(91,157,240,.2)}
 .tracker{padding:8px 16px;background:var(--bg1);border-top:1px solid var(--border);flex-shrink:0;max-height:80px;overflow-y:auto}
 .tracker-title{font-size:11px;font-weight:600;color:var(--purple);margin-bottom:4px}
 .tracker-items{display:flex;flex-wrap:wrap;gap:6px}
@@ -109,19 +113,33 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 .tune-top{padding:12px 16px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
 .tune-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .tune-row label{color:var(--t2);font-size:12px;white-space:nowrap}
-.tune-row select{background:var(--bg2);border:1px solid var(--border);color:var(--t1);padding:5px 10px;border-radius:var(--r);font-size:12px;min-width:200px}
-.tune-section{padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.tune-search-wrap{position:relative;flex:1;min-width:200px;max-width:400px}
+.tune-search-wrap input[type=text]{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--t1);padding:5px 10px;border-radius:var(--r);font-size:12px;outline:none}
+.tune-search-wrap input:focus{border-color:var(--accent)}
+.tune-search-wrap select{position:absolute;top:100%;left:0;width:100%;max-height:250px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);color:var(--t1);border-radius:0 0 var(--r) var(--r);font-size:12px;z-index:10;display:none}
+.tune-search-wrap select.show{display:block}
+.tune-search-wrap select option{padding:4px 8px;cursor:pointer}
+.tune-search-wrap select option:hover{background:var(--hover)}
+.tune-source-note{margin-top:6px;font-size:11px;color:var(--t3);padding:4px 8px;background:var(--bg2);border-radius:var(--r);border-left:3px solid var(--info)}
+.tune-body{flex:1;overflow-y:auto;padding-bottom:12px}
+.tune-section{padding:12px 16px;border-bottom:1px solid var(--border)}
 .tune-section-hdr{font-weight:600;font-size:12px;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .tune-table-wrap{overflow-x:auto}
-.tune-table{width:100%;border-collapse:collapse;font-size:12px}
+.tune-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
 .tune-table th{background:var(--bg2);color:var(--t2);padding:6px 10px;text-align:left;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap}
-.tune-table td{padding:5px 10px;border-bottom:1px solid rgba(42,46,66,.3);color:var(--t1)}
+.tune-table td{padding:5px 10px;border-bottom:1px solid rgba(42,46,66,.3);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tune-table tr:hover{background:var(--hover)}
 .tune-table .num{font-family:'Cascadia Code','Consolas',monospace;color:var(--accent);text-align:right}
 .tune-table .prob{color:var(--info)}
 .tune-table .time-good{color:var(--success)}
 .tune-table .time-warn{color:var(--accent)}
 .tune-table .time-bad{color:var(--danger)}
+.tune-table .col-map{width:22%}
+.tune-table .col-mon{width:18%}
+.tune-table .col-prob{width:12%}
+.tune-table .col-qty{width:8%}
+.tune-table .col-kph{width:18%}
+.tune-table .col-time{width:22%}
 .tune-table input[type=text]{background:var(--bg0);border:1px solid var(--border);color:var(--t1);padding:3px 6px;border-radius:var(--r);font-size:12px;width:70px;text-align:center;font-family:'Cascadia Code','Consolas',monospace}
 .tune-table input:focus{border-color:var(--accent);outline:none}
 .tune-targets{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}

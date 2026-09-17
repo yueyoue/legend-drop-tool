@@ -1082,6 +1082,23 @@ func findMapForMonster(entries []*parser.MonGenEntry, monsterName string) string
 	return "未知地图"
 }
 
+// GetMonstersOnMap 获取指定地图上的怪物列表（用于模拟结果的地图点击）
+func (a *App) GetMonstersOnMap(mapName string) []string {
+	if a.monGenEntries == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var names []string
+	for _, e := range a.monGenEntries {
+		m := strings.TrimSpace(e.MapName)
+		if m == mapName && !seen[e.MonsterName] {
+			seen[e.MonsterName] = true
+			names = append(names, e.MonsterName)
+		}
+	}
+	return names
+}
+
 // roundToNiceDenominator 将分母取整到"好看"的数字
 func roundToNiceDenominator(raw float64) int {
 	if raw <= 0 {
