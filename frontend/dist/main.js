@@ -505,13 +505,15 @@ function initTuneTab() {
     const itemName = $('tuneItemSelect').value;
     if (!itemName) return setStatus('请选择物品');
     try {
+      const hasSim = simResult != null;
       tuneAnalysis = await window.go.app.App.AnalyzeItemDrops(itemName);
       tuneRecommend = null;
       renderTuneSources();
       renderTuneTargets();
       $('tuneRecommendSection').style.display = 'none';
       $('tuneCopySection').style.display = 'none';
-      setStatus(`已分析「${itemName}」: ${tuneAnalysis.sources.length} 个掉落来源，综合期望 ${tuneAnalysis.totalExpectH.toFixed(1)} 小时/个`);
+      const hint = hasSim ? '' : ' (基于配置数据，建议先运行模拟获取更准确的数据)';
+      setStatus(`已分析「${itemName}」: ${tuneAnalysis.sources.length} 个掉落来源，综合期望 ${tuneAnalysis.totalExpectH.toFixed(1)} 小时/个${hint}`);
     } catch(e) { setStatus('分析失败: ' + e); }
   };
 
@@ -634,16 +636,39 @@ function renderTuneRecommend() {
     <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th></tr>`;
   tuneRecommend.forEach((c, i) => {
     const oldProb = c.oldNum + '/' + c.oldDen;
-    html += `<tr class="rec-row">
+    // 计算每小时杀怪数（用于实时更新期望）
+    const kph = c.newExpectH > 0 ? 1.0 / (c.newExpectH * c.newNum / c.newDen) : 0;
+    html += `<tr class="rec-row" data-kph="${kph}" data-num="${c.newNum}">
       <td>${c.mapName}</td>
       <td>${c.monsterName}</td>
       <td class="num prob">${oldProb}</td>
-      <td class="num">${c.newNum}/<input type="text" class="rec-den" value="${c.newDen}" style="width:65px" /></td>
-      <td class="num">${c.newExpectH.toFixed(1)}h</td>
+      <td class="num">${c.newNum}/<input type="text" class="rec-den" value="${c.newDen}" data-idx="${i}" style="width:65px" /></td>
+      <td class="num exp-h">${c.newExpectH.toFixed(1)}h</td>
     </tr>`;
   });
   html += '</table>';
   $('tuneRecommendTable').innerHTML = html;
+
+  // 实时更新：修改分母后自动重算期望小时
+  document.querySelectorAll('.rec-den').forEach(input => {
+    input.oninput = () => {
+      const row = input.closest('.rec-row');
+      const kph = parseFloat(row.dataset.kph) || 0;
+      const num = parseInt(row.dataset.num) || 1;
+      const newDen = parseInt(input.value) || 1;
+      const expCell = row.querySelector('.exp-h');
+      if (kph > 0 && newDen > 0) {
+        const newExpectH = 1.0 / (kph * num / newDen);
+        expCell.textContent = newExpectH.toFixed(1) + 'h';
+        // 同步更新 tuneRecommend 数据
+        const idx = parseInt(input.dataset.idx);
+        if (!isNaN(idx) && tuneRecommend[idx]) {
+          tuneRecommend[idx].newDen = newDen;
+          tuneRecommend[idx].newExpectH = newExpectH;
+        }
+      }
+    };
+  });
 }
 
 async function fillCopyTargets(excludeItem) {

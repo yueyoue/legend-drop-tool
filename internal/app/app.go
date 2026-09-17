@@ -801,24 +801,21 @@ func (a *App) AnalyzeItemDrops(itemName string) (*RateAnalysis, error) {
 		return nil, fmt.Errorf("请输入物品名称")
 	}
 
-	analysis := &RateAnalysis{
-		ItemName: itemName,
+	// 优先使用模拟数据
+	if a.simResult != nil {
+		return a.analyzeFromSim(itemName)
 	}
 
+	// 回退：从配置文件数据计算
+	analysis := &RateAnalysis{ItemName: itemName}
 	for mi, r := range a.currentResults {
 		monsterName := r.File.MonsterName
 		for ei, e := range r.File.Entries {
-			if !e.IsEditable() {
+			if !e.IsEditable() || e.ItemName != itemName {
 				continue
 			}
-			if e.ItemName != itemName {
-				continue
-			}
-
-			// 从 MonGen 获取该怪物的刷怪信息
 			refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
-			kph := float64(count) * 3600.0 / refreshSec // 每小时杀怪数
-
+			kph := float64(count) * 3600.0 / refreshSec
 			prob := e.Probability()
 			var expectH float64
 			if prob > 0 && kph > 0 {
@@ -826,8 +823,6 @@ func (a *App) AnalyzeItemDrops(itemName string) (*RateAnalysis, error) {
 			} else {
 				expectH = 999999
 			}
-
-			// 查找该怪物所在的地图
 			mapName := findMapForMonster(a.monGenEntries, monsterName)
 			displayMap := mapName
 			if a.mapInfoLookup != nil {
@@ -835,40 +830,107 @@ func (a *App) AnalyzeItemDrops(itemName string) (*RateAnalysis, error) {
 					displayMap = mapName + " (" + desc + ")"
 				}
 			}
-
 			analysis.Sources = append(analysis.Sources, ItemDropSource{
-				MonsterName:  monsterName,
-				MonsterIndex: mi,
-				EntryIndex:   ei,
-				MapName:      displayMap,
-				ProbNum:      e.ProbabilityNumerator,
-				ProbDen:      e.ProbabilityDenominator,
-				ProbStr:      e.ProbabilityStr(),
-				Quantity:     e.Quantity,
-				KillPerHour:  kph,
-				ExpectHours:  expectH,
+				MonsterName: monsterName, MonsterIndex: mi, EntryIndex: ei,
+				MapName: displayMap, ProbNum: e.ProbabilityNumerator, ProbDen: e.ProbabilityDenominator,
+				ProbStr: e.ProbabilityStr(), Quantity: e.Quantity, KillPerHour: kph, ExpectHours: expectH,
 			})
-
 			analysis.TotalKPH += kph
 		}
 	}
-
 	if len(analysis.Sources) == 0 {
 		return nil, fmt.Errorf("未找到物品「%s」的掉落配置", itemName)
 	}
-
-	// 综合期望：总杀怪速率下出一个的时间
 	totalProbRate := 0.0
 	for _, s := range analysis.Sources {
-		prob := float64(s.ProbNum) / float64(s.ProbDen)
-		totalProbRate += s.KillPerHour * prob
+		totalProbRate += s.KillPerHour * float64(s.ProbNum) / float64(s.ProbDen)
 	}
 	if totalProbRate > 0 {
 		analysis.TotalExpectH = 1.0 / totalProbRate
 	} else {
 		analysis.TotalExpectH = 999999
 	}
+	return analysis, nil
+}
 
+// analyzeFromSim 使用模拟数据分析物品掉落来源
+func (a *App) analyzeFromSim(itemName string) (*RateAnalysis, error) {
+	analysis := &RateAnalysis{ItemName: itemName}
+	sim := a.simResult
+	monsterDrops := sim.ItemMonsterDrops[itemName]
+
+	// 从配置文件中获取概率信息
+	type entryInfo struct{ mi, ei int }
+	entryMap := make(map[string]entryInfo)
+	for mi, r := range a.currentResults {
+		for ei, e := range r.File.Entries {
+			if e.IsEditable() && e.ItemName == itemName {
+				entryMap[r.File.MonsterName] = entryInfo{mi, ei}
+			}
+		}
+	}
+
+	durationH := sim.Duration.Hours()
+	for monsterName, simDropCnt := range monsterDrops {
+		var killCnt int64
+		for _, ms := range sim.MonsterStats {
+			if ms.MonsterName == monsterName {
+				killCnt = ms.KillCount
+				break
+			}
+		}
+		probNum, probDen := 1, 100
+		mi, ei := -1, -1
+		if info, ok := entryMap[monsterName]; ok {
+			mi, ei = info.mi, info.ei
+			entry := a.currentResults[mi].File.Entries[ei]
+			probNum = entry.ProbabilityNumerator
+			probDen = entry.ProbabilityDenominator
+		}
+		var kph float64
+		if durationH > 0 && killCnt > 0 {
+			kph = float64(killCnt) / durationH
+		} else {
+			refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
+			kph = float64(count) * 3600.0 / refreshSec
+		}
+		var actualProb float64
+		if killCnt > 0 {
+			actualProb = float64(simDropCnt) / float64(killCnt)
+		}
+		var expectH float64
+		if actualProb > 0 && kph > 0 {
+			expectH = 1.0 / (kph * actualProb)
+		} else {
+			expectH = 999999
+		}
+		mapName := findMapForMonster(a.monGenEntries, monsterName)
+		displayMap := mapName
+		if a.mapInfoLookup != nil {
+			if desc, ok := a.mapInfoLookup[mapName]; ok && desc != "" {
+				displayMap = mapName + " (" + desc + ")"
+			}
+		}
+		analysis.Sources = append(analysis.Sources, ItemDropSource{
+			MonsterName: monsterName, MonsterIndex: mi, EntryIndex: ei,
+			MapName: displayMap, ProbNum: probNum, ProbDen: probDen,
+			ProbStr: fmt.Sprintf("%d/%d", probNum, probDen), Quantity: 1,
+			KillPerHour: kph, ExpectHours: expectH,
+		})
+		analysis.TotalKPH += kph
+	}
+	if len(analysis.Sources) == 0 {
+		return nil, fmt.Errorf("未找到物品「%s」的掉落配置", itemName)
+	}
+	totalProbRate := 0.0
+	for _, s := range analysis.Sources {
+		totalProbRate += s.KillPerHour * float64(s.ProbNum) / float64(s.ProbDen)
+	}
+	if totalProbRate > 0 {
+		analysis.TotalExpectH = 1.0 / totalProbRate
+	} else {
+		analysis.TotalExpectH = 999999
+	}
 	return analysis, nil
 }
 
