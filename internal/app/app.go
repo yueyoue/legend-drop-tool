@@ -410,8 +410,9 @@ type SimResponse struct {
 	ItemStats       []SimItemStat                `json:"itemStats"`
 	MapStats        []SimMapStat                 `json:"mapStats"`
 	MonsterStats    []SimMonsterStat             `json:"monsterStats"`
-	ItemMonsterDrops map[string]map[string]int64 `json:"itemMonsterDrops"`
-	ItemMapDrops     map[string]map[string]int64 `json:"itemMapDrops"`
+	ItemMonsterDrops    map[string]map[string]int64              `json:"itemMonsterDrops"`
+	ItemMapDrops        map[string]map[string]int64              `json:"itemMapDrops"`
+	ItemMonsterMapDrops map[string]map[string]map[string]int64  `json:"itemMonsterMapDrops"`
 	RunCount        int                          `json:"runCount"`
 	AvgDrops        float64                      `json:"avgDrops"`
 	MinDrops        int64                        `json:"minDrops"`
@@ -522,9 +523,10 @@ func (a *App) RunSimulation(req SimRequest) (*SimResponse, error) {
 			return resp.MonsterStats[i].DropCount > resp.MonsterStats[j].DropCount
 		})
 
-		// 物品→怪物掉落数 和 物品→地图掉落数（用于点击物品后联动筛选）
+		// 物品→怪物掉落数 和 物品→地图掉落数（用于点击物品/地图后联动筛选）
 		resp.ItemMonsterDrops = simResult.ItemMonsterDrops
 		resp.ItemMapDrops = simResult.ItemMapDrops
+		resp.ItemMonsterMapDrops = simResult.ItemMonsterMapDrops
 	}
 
 	if req.RunCount > 1 {
@@ -973,11 +975,28 @@ func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChang
 				continue // 此地图无目标，跳过
 			}
 
-			refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
-			kph := float64(count) * 3600.0 / refreshSec
+			// KPH：优先用模拟数据，否则用 MonGen
+			var kph float64
+			if a.simResult != nil {
+				durationH := a.simResult.Duration.Hours()
+				var killCnt int64
+				for _, ms := range a.simResult.MonsterStats {
+					if ms.MonsterName == monsterName {
+						killCnt = ms.KillCount
+						break
+					}
+				}
+				if durationH > 0 && killCnt > 0 {
+					kph = float64(killCnt) / durationH
+				}
+			}
+			if kph <= 0 {
+				refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
+				kph = float64(count) * 3600.0 / refreshSec
+			}
 
 			// 反算推荐分母：
-			// expectH = 1 / (kph * num/den)
+			// targetH = 1 / (kph * num/den)
 			// => den = kph * num * targetH
 			var newDen int
 			if kph > 0 && targetH > 0 {
@@ -1143,19 +1162,19 @@ func findMapForMonster(entries []*parser.MonGenEntry, monsterName string) string
 	return "未知地图"
 }
 
-// roundToNiceDenominator 将分母取整到"好看"的数字
+// roundToNiceDenominator 将分母取整到"好看"的数字（向上取整，确保爆率不低于目标）
 func roundToNiceDenominator(raw float64) int {
 	if raw <= 0 {
 		return 1
 	}
-	// 优先取整到 10/100/500/1000/5000/10000 等
+	// 向上取整到 1/2/5/10/20/50/100/200/500/1000 等阶梯
 	niceValues := []int{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000}
 	for _, n := range niceValues {
-		if float64(n) >= raw*0.8 {
+		if float64(n) >= raw {
 			return n
 		}
 	}
-	// 超大值，取整到万
+	// 超大值，向上取整到万
 	return int(math.Ceil(raw/10000)) * 10000
 }
 

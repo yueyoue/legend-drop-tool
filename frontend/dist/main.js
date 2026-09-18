@@ -332,8 +332,8 @@ function initSimTab() {
 function renderSimResult(r) {
   // 物品表（支持点击筛选）
   renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]), 'item', r);
-  // 地图表
-  renderCol('mapTableBody', ['地图名称','掉落数量'], r.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]));
+  // 地图表（支持点击筛选）
+  renderCol('mapTableBody', ['地图名称','掉落数量'], r.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]), 'map', r);
   // 怪物表
   renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], r.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]));
   // 统计
@@ -350,7 +350,7 @@ function renderCol(bodyId, headers, rows, type, simData) {
   const body = $(bodyId);
   let html = `<div class="rrow hdr"><span class="lbl">${headers[0]}</span><span class="val">${headers[1]}</span></div>`;
   rows.forEach((r, i) => {
-    const clickAttr = type === 'item' ? ` data-idx="${i}" style="cursor:pointer"` : '';
+    const clickAttr = (type === 'item' || type === 'map') ? ` data-idx="${i}" style="cursor:pointer"` : '';
     html += `<div class="rrow"${clickAttr}><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
   });
   body.innerHTML = html;
@@ -360,11 +360,21 @@ function renderCol(bodyId, headers, rows, type, simData) {
       el.onclick = () => {
         const idx = parseInt(el.dataset.idx);
         const itemName = simData.itemStats[idx].itemName;
-        // 高亮选中行
         body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
         el.classList.add('selected');
-        // 筛选地图和怪物
         filterByItem(itemName, simData);
+      };
+    });
+  }
+  // 地图行点击 → 筛选怪物
+  if (type === 'map' && simData) {
+    body.querySelectorAll('.rrow[data-idx]').forEach(el => {
+      el.onclick = () => {
+        const idx = parseInt(el.dataset.idx);
+        const mapName = simData.mapStats[idx].mapName;
+        body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
+        el.classList.add('selected');
+        filterByMap(mapName, simData);
       };
     });
   }
@@ -395,6 +405,34 @@ function filterByItem(itemName, simData) {
   renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows);
 
   setStatus(`已选中物品: ${itemName} | 地图:${mapRows.length}个 怪物:${monRows.length}个`);
+}
+
+function filterByMap(mapName, simData) {
+  // 筛选该地图中的怪物
+  const monMap = {};
+  const imm = simData.itemMonsterMapDrops || {};
+  // 汇总每个怪物在该地图的总掉落数和涉及物品数
+  for (const [itemName, monsterMaps] of Object.entries(imm)) {
+    for (const [monName, mapCnts] of Object.entries(monsterMaps)) {
+      const cnt = mapCnts[mapName] || 0;
+      if (cnt > 0) {
+        if (!monMap[monName]) monMap[monName] = { drops: 0, items: 0 };
+        monMap[monName].drops += cnt;
+        monMap[monName].items++;
+      }
+    }
+  }
+  const monRows = Object.entries(monMap).map(([name, info]) => {
+    const ms = (simData.monsterStats || []).find(m => m.monsterName === name);
+    const killCnt = ms ? ms.killCount : 0;
+    return [name, `${fmtNum(killCnt)} / ${fmtNum(info.drops)}`];
+  }).sort((a, b) => {
+    const da = parseInt(a[1].split('/')[1].trim().replace(/,/g,''));
+    const db = parseInt(b[1].split('/')[1].trim().replace(/,/g,''));
+    return db - da;
+  });
+  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows);
+  setStatus(`已选中地图: ${mapName} | 怪物:${monRows.length}个`);
 }
 
 function filterTable(bodyId, query) {
@@ -500,6 +538,27 @@ let tuneAnalysis = null;
 let tuneRecommend = null;
 
 function initTuneTab() {
+  // 物品搜索过滤（重建 select options）
+  let allTuneItems = [];
+  $('tuneItemSearch').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    const select = $('tuneItemSelect');
+    const curVal = select.value;
+    select.innerHTML = '<option value="">-- 请选择物品 --</option>';
+    allTuneItems.filter(n => n.toLowerCase().includes(q)).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+    // 恢复之前选中的值
+    if (allTuneItems.includes(curVal) && curVal.toLowerCase().includes(q)) {
+      select.value = curVal;
+    }
+  };
+  // 保存物品列表供搜索用
+  window._setAllTuneItems = (items) => { allTuneItems = items || []; };
+
   // 分析按钮
   $('btnAnalyze').onclick = async () => {
     const itemName = $('tuneItemSelect').value;
@@ -508,14 +567,18 @@ function initTuneTab() {
       const hasSim = simResult != null;
       tuneAnalysis = await window.go.app.App.AnalyzeItemDrops(itemName);
       tuneRecommend = null;
-      renderTuneSources();
+      renderTuneSources(hasSim);
       renderTuneTargets();
       $('tuneRecommendSection').style.display = 'none';
       $('tuneCopySection').style.display = 'none';
-      const hint = hasSim ? '' : ' (基于配置数据，建议先运行模拟获取更准确的数据)';
-      setStatus(`已分析「${itemName}」: ${tuneAnalysis.sources.length} 个掉落来源，综合期望 ${tuneAnalysis.totalExpectH.toFixed(1)} 小时/个${hint}`);
+      const src = hasSim ? '模拟数据' : '配置文件+MonGen数据';
+      setStatus(`已分析「${itemName}」: ${tuneAnalysis.sources.length} 个来源，综合期望 ${tuneAnalysis.totalExpectH.toFixed(1)}h/个 [数据来源: ${src}]`);
     } catch(e) { setStatus('分析失败: ' + e); }
   };
+
+  // 切换数据来源提示
+  $('tuneSourceHint').className = 'tune-source-hint';
+  $('tuneSourceHint').textContent = '';
 
   // 计算推荐
   $('btnCalcRecommend').onclick = async () => {
@@ -583,11 +646,20 @@ function initTuneTab() {
   };
 }
 
-function renderTuneSources() {
+function renderTuneSources(hasSim) {
   if (!tuneAnalysis) return;
   $('tuneSourceCount').textContent = `(${tuneAnalysis.sources.length}个来源)`;
+  // 数据来源提示
+  const hintEl = $('tuneSourceHint');
+  if (hasSim) {
+    hintEl.className = 'tune-source-hint sim';
+    hintEl.textContent = '📊 数据来源：模拟结果（击杀数/掉落数/模拟时长）';
+  } else {
+    hintEl.className = 'tune-source-hint cfg';
+    hintEl.textContent = '⚠️ 数据来源：爆率文件 + MonGen 刷新配置（建议先运行模拟获取更准确的数据）';
+  }
   let html = `<table class="tune-table">
-    <colgroup><col style="width:22%"><col style="width:22%"><col style="width:14%"><col style="width:10%"><col style="width:16%"><col style="width:16%"></colgroup>
+    <colgroup><col style="width:150px"><col style="width:150px"><col style="width:90px"><col style="width:60px"><col style="width:110px"><col style="width:110px"></colgroup>
     <tr><th>地图</th><th>怪物</th><th>爆率</th><th>数量</th><th>每小时怪数</th><th>期望(小时/个)</th></tr>`;
   tuneAnalysis.sources.forEach(s => {
     const timeCls = s.expectHours <= 2 ? 'time-good' : s.expectHours <= 10 ? 'time-warn' : 'time-bad';
@@ -632,7 +704,7 @@ function renderTuneRecommend() {
   if (!tuneRecommend) return;
   $('tuneRecommendCount').textContent = `(${tuneRecommend.length}条)`;
   let html = `<table class="tune-table">
-    <colgroup><col style="width:25%"><col style="width:25%"><col style="width:16%"><col style="width:18%"><col style="width:16%"></colgroup>
+    <colgroup><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:120px"><col style="width:120px"></colgroup>
     <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th></tr>`;
   tuneRecommend.forEach((c, i) => {
     const oldProb = c.oldNum + '/' + c.oldDen;
@@ -697,6 +769,7 @@ async function refreshTuneItemList() {
       opt.textContent = name;
       select.appendChild(opt);
     });
+    if (window._setAllTuneItems) window._setAllTuneItems(allItems || []);
   } catch(e) { console.log('refreshTuneItemList:', e); }
 }
 

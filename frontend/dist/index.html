@@ -131,12 +131,14 @@
           <div class="tune-top">
             <div class="tune-row">
               <label>选择物品:</label>
+              <input type="text" id="tuneItemSearch" placeholder="🔍 搜索物品..." style="width:160px" />
               <select id="tuneItemSelect"><option value="">-- 请先加载爆率文件 --</option></select>
               <button class="btn btn-gold" id="btnAnalyze">🔍 分析掉落来源</button>
             </div>
           </div>
           <div class="tune-section">
             <div class="tune-section-hdr">📍 当前掉落来源 <span id="tuneSourceCount" class="badge"></span></div>
+            <div id="tuneSourceHint"></div>
             <div class="tune-table-wrap" id="tuneSourceTable"></div>
           </div>
           <div class="tune-section">
