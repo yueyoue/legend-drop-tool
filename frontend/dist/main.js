@@ -301,6 +301,7 @@ function initSimTab() {
       const req = {
         durationHours: +$('simDuration').value,
         killRatioPct: +$('simKillRatio').value,
+        playerRatePct: +$('simPlayerRate').value || 100,
         runCount: +$('simRunCount').value,
         monsters: filterMonsters,
         items: filterItems,
@@ -676,7 +677,6 @@ function renderTuneSources(hasSim) {
     hintEl.textContent = '⚠️ 数据来源：爆率文件 + MonGen 刷新配置（建议先运行模拟获取更准确的数据）';
   }
   let html = `<table class="tune-table">
-    <colgroup><col style="width:150px"><col style="width:150px"><col style="width:90px"><col style="width:60px"><col style="width:110px"><col style="width:110px"></colgroup>
     <tr><th>地图</th><th>怪物</th><th>爆率</th><th>数量</th><th>每小时怪数</th><th>期望(小时/个)</th></tr>`;
   tuneAnalysis.sources.forEach(s => {
     const timeCls = s.expectHours <= 2 ? 'time-good' : s.expectHours <= 10 ? 'time-warn' : 'time-bad';
@@ -721,7 +721,6 @@ function renderTuneRecommend(modeName) {
   if (!tuneRecommend) return;
   $('tuneRecommendCount').textContent = `(${tuneRecommend.length}条)`;
   let html = `<table class="tune-table">
-    <colgroup><col style="width:130px"><col style="width:130px"><col style="width:100px"><col style="width:120px"><col style="width:100px"><col style="width:80px"></colgroup>
     <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th><th>偏差</th></tr>`;
   tuneRecommend.forEach((c, i) => {
     const oldProb = c.oldNum + '/' + c.oldDen;

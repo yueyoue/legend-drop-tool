@@ -394,6 +394,7 @@ func (a *App) DetectAnomaly() []AnomalyInfo {
 type SimRequest struct {
 	DurationHours float64  `json:"durationHours"`
 	KillRatioPct  float64  `json:"killRatioPct"`
+	PlayerRatePct float64  `json:"playerRatePct"` // 人物爆率百分比，100%=1倍
 	RunCount      int      `json:"runCount"`
 	Monsters      []string `json:"monsters"`
 	Items         []string `json:"items"`
@@ -450,12 +451,17 @@ func (a *App) RunSimulation(req SimRequest) (*SimResponse, error) {
 		req.RunCount = 1
 	}
 
+	playerRate := req.PlayerRatePct / 100.0
+	if playerRate <= 0 {
+		playerRate = 1.0
+	}
+
 	cfg := simulator.SimConfig{
 		DurationHours:   req.DurationHours,
 		KillRatio:       killRatio,
 		RefreshInterval: 60,
 		RefreshCount:    10,
-		MapRateModifier: 1.0,
+		MapRateModifier: playerRate,
 		RunCount:        req.RunCount,
 		MonsterFilter:   req.Monsters,
 		ItemFilter:      req.Items,
