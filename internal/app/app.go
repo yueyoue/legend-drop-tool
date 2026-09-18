@@ -770,14 +770,15 @@ type RateAnalysis struct {
 
 // RateChange 单条爆率修改建议
 type RateChange struct {
-	MonsterName  string `json:"monsterName"`
-	MonsterIndex int    `json:"monsterIndex"`
-	EntryIndex   int    `json:"entryIndex"`
-	MapName      string `json:"mapName"`
-	OldNum       int    `json:"oldNum"`
-	OldDen       int    `json:"oldDen"`
-	NewNum       int    `json:"newNum"`
-	NewDen       int    `json:"newDen"`
+	MonsterName  string  `json:"monsterName"`
+	MonsterIndex int     `json:"monsterIndex"`
+	EntryIndex   int     `json:"entryIndex"`
+	MapName      string  `json:"mapName"`
+	OldNum       int     `json:"oldNum"`
+	OldDen       int     `json:"oldDen"`
+	OldExpectH   float64 `json:"oldExpectH"` // 当前期望小时
+	NewNum       int     `json:"newNum"`
+	NewDen       int     `json:"newDen"`
 	NewExpectH   float64 `json:"newExpectH"` // 修改后期望小时
 }
 
@@ -975,38 +976,28 @@ func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChang
 				continue // 此地图无目标，跳过
 			}
 
-			// KPH：优先用模拟数据，否则用 MonGen
-			var kph float64
-			if a.simResult != nil {
-				durationH := a.simResult.Duration.Hours()
-				var killCnt int64
-				for _, ms := range a.simResult.MonsterStats {
-					if ms.MonsterName == monsterName {
-						killCnt = ms.KillCount
-						break
-					}
-				}
-				if durationH > 0 && killCnt > 0 {
-					kph = float64(killCnt) / durationH
-				}
-			}
-			if kph <= 0 {
-				refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
-				kph = float64(count) * 3600.0 / refreshSec
-			}
+			// 计算当前期望小时（与分析页面一致）
+			oldExpectH := a.calcExpectHours(monsterName, e.ProbabilityNumerator, e.ProbabilityDenominator)
 
 			// 反算推荐分母：
-			// targetH = 1 / (kph * num/den)
-			// => den = kph * num * targetH
+			// oldExpectH = 1 / (kph * num/oldDen) => kph = oldDen / (num * oldExpectH)
+			// targetH = 1 / (kph * num/newDen) => newDen = kph * num * targetH
+			// 合并：newDen = oldDen * targetH / oldExpectH
 			var newDen int
-			if kph > 0 && targetH > 0 {
-				rawDen := kph * float64(e.ProbabilityNumerator) * targetH
+			if oldExpectH > 0 && targetH > 0 {
+				rawDen := float64(e.ProbabilityDenominator) * targetH / oldExpectH
 				newDen = roundToNiceDenominator(rawDen)
 			} else {
 				newDen = e.ProbabilityDenominator
 			}
 
-			newExpectH := 1.0 / (kph * float64(e.ProbabilityNumerator) / float64(newDen))
+			// 修改后期望：newExpectH = oldExpectH * newDen / oldDen
+			var newExpectH float64
+			if e.ProbabilityDenominator > 0 {
+				newExpectH = oldExpectH * float64(newDen) / float64(e.ProbabilityDenominator)
+			} else {
+				newExpectH = oldExpectH
+			}
 
 			changes = append(changes, RateChange{
 				MonsterName:  monsterName,
@@ -1015,6 +1006,7 @@ func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChang
 				MapName:      displayMap,
 				OldNum:       e.ProbabilityNumerator,
 				OldDen:       e.ProbabilityDenominator,
+				OldExpectH:   oldExpectH,
 				NewNum:       e.ProbabilityNumerator,
 				NewDen:       newDen,
 				NewExpectH:   newExpectH,
@@ -1150,6 +1142,36 @@ func findMonGenInfo(entries []*parser.MonGenEntry, monsterName string) (refreshS
 		}
 	}
 	return 60, 10 // 默认值：60秒刷新，每次10只
+}
+
+// calcExpectHours 计算指定怪物掉落指定物品的期望小时数
+// 优先用模拟数据，否则用配置数据
+func (a *App) calcExpectHours(monsterName string, probNum, probDen int) float64 {
+	var kph float64
+	// 优先用模拟数据
+	if a.simResult != nil {
+		durationH := a.simResult.Duration.Hours()
+		var killCnt int64
+		for _, ms := range a.simResult.MonsterStats {
+			if ms.MonsterName == monsterName {
+				killCnt = ms.KillCount
+				break
+			}
+		}
+		if durationH > 0 && killCnt > 0 {
+			kph = float64(killCnt) / durationH
+		}
+	}
+	// 回退到 MonGen
+	if kph <= 0 {
+		refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
+		kph = float64(count) * 3600.0 / refreshSec
+	}
+	prob := float64(probNum) / float64(probDen)
+	if prob > 0 && kph > 0 {
+		return 1.0 / (kph * prob)
+	}
+	return 999999
 }
 
 // findMapForMonster 从 MonGen 中查找怪物所在的地图

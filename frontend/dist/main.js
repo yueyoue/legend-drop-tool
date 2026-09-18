@@ -708,9 +708,8 @@ function renderTuneRecommend() {
     <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th></tr>`;
   tuneRecommend.forEach((c, i) => {
     const oldProb = c.oldNum + '/' + c.oldDen;
-    // 计算每小时杀怪数（用于实时更新期望）
-    const kph = c.newExpectH > 0 ? 1.0 / (c.newExpectH * c.newNum / c.newDen) : 0;
-    html += `<tr class="rec-row" data-kph="${kph}" data-num="${c.newNum}">
+    const oldExpH = c.oldExpectH || 0;
+    html += `<tr class="rec-row" data-old-exp="${oldExpH}" data-old-den="${c.oldDen}">
       <td>${c.mapName}</td>
       <td>${c.monsterName}</td>
       <td class="num prob">${oldProb}</td>
@@ -722,17 +721,17 @@ function renderTuneRecommend() {
   $('tuneRecommendTable').innerHTML = html;
 
   // 实时更新：修改分母后自动重算期望小时
+  // 公式：newExpectH = oldExpectH * newDen / oldDen
   document.querySelectorAll('.rec-den').forEach(input => {
     input.oninput = () => {
       const row = input.closest('.rec-row');
-      const kph = parseFloat(row.dataset.kph) || 0;
-      const num = parseInt(row.dataset.num) || 1;
+      const oldExpH = parseFloat(row.dataset.oldExp) || 0;
+      const oldDen = parseInt(row.dataset.oldDen) || 1;
       const newDen = parseInt(input.value) || 1;
       const expCell = row.querySelector('.exp-h');
-      if (kph > 0 && newDen > 0) {
-        const newExpectH = 1.0 / (kph * num / newDen);
+      if (oldExpH > 0 && newDen > 0 && oldDen > 0) {
+        const newExpectH = oldExpH * newDen / oldDen;
         expCell.textContent = newExpectH.toFixed(1) + 'h';
-        // 同步更新 tuneRecommend 数据
         const idx = parseInt(input.dataset.idx);
         if (!isNaN(idx) && tuneRecommend[idx]) {
           tuneRecommend[idx].newDen = newDen;
