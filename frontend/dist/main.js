@@ -334,8 +334,8 @@ function renderSimResult(r) {
   renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]), 'item', r);
   // 地图表（支持点击筛选）
   renderCol('mapTableBody', ['地图名称','掉落数量'], r.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]), 'map', r);
-  // 怪物表
-  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], r.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]));
+  // 怪物表（支持双击打开爆率文件）
+  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], r.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]), 'monster', r);
   // 统计
   $('sumKill').textContent = '总击杀: ' + fmtNum(r.totalKills);
   $('sumDrop').textContent = '总掉落: ' + fmtNum(r.totalDrops);
@@ -350,7 +350,7 @@ function renderCol(bodyId, headers, rows, type, simData) {
   const body = $(bodyId);
   let html = `<div class="rrow hdr"><span class="lbl">${headers[0]}</span><span class="val">${headers[1]}</span></div>`;
   rows.forEach((r, i) => {
-    const clickAttr = (type === 'item' || type === 'map') ? ` data-idx="${i}" style="cursor:pointer"` : '';
+    const clickAttr = (type === 'item' || type === 'map') ? ` data-idx="${i}" data-name="${r[0]}" style="cursor:pointer"` : (type === 'monster') ? ` data-idx="${i}" data-name="${r[0]}"` : '';
     html += `<div class="rrow"${clickAttr}><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
   });
   body.innerHTML = html;
@@ -358,8 +358,7 @@ function renderCol(bodyId, headers, rows, type, simData) {
   if (type === 'item' && simData) {
     body.querySelectorAll('.rrow[data-idx]').forEach(el => {
       el.onclick = () => {
-        const idx = parseInt(el.dataset.idx);
-        const itemName = simData.itemStats[idx].itemName;
+        const itemName = el.dataset.name;
         body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
         el.classList.add('selected');
         filterByItem(itemName, simData);
@@ -370,12 +369,31 @@ function renderCol(bodyId, headers, rows, type, simData) {
   if (type === 'map' && simData) {
     body.querySelectorAll('.rrow[data-idx]').forEach(el => {
       el.onclick = () => {
-        const idx = parseInt(el.dataset.idx);
-        const mapName = simData.mapStats[idx].mapName;
+        const mapName = el.dataset.name;
         body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
         el.classList.add('selected');
         filterByMap(mapName, simData);
       };
+    });
+  }
+  // 怪物行双击 → 打开爆率文件
+  if (type === 'monster') {
+    body.querySelectorAll('.rrow[data-idx]').forEach(el => {
+      el.ondblclick = async () => {
+        const monsterName = el.dataset.name;
+        const idx = monsters.findIndex(m => m.name === monsterName);
+        if (idx >= 0) {
+          $$('.tab').forEach(t => t.classList.remove('active'));
+          $$('.tab-pane').forEach(p => p.classList.remove('active'));
+          document.querySelector('.tab[data-tab="edit"]').classList.add('active');
+          $('pane-edit').classList.add('active');
+          $('sidebar').style.display = 'flex';
+          await selectMonster(idx);
+          setStatus(`已打开怪物: ${monsterName}`);
+        }
+      };
+      el.style.cursor = 'pointer';
+      el.title = '双击打开爆率文件';
     });
   }
 }
@@ -386,13 +404,12 @@ function filterByItem(itemName, simData) {
   const mapRows = Object.entries(mapDrops)
     .map(([name, cnt]) => [name, fmtNum(cnt)])
     .sort((a, b) => parseInt(b[1].replace(/,/g,'')) - parseInt(a[1].replace(/,/g,'')));
-  renderCol('mapTableBody', ['地图名称','掉落数量'], mapRows);
+  renderCol('mapTableBody', ['地图名称','掉落数量'], mapRows, 'map', simData);
 
   // 筛选怪物
   const monDrops = (simData.itemMonsterDrops || {})[itemName] || {};
   const monRows = [];
   for (const [monName, dropCnt] of Object.entries(monDrops)) {
-    // 从全局怪物统计中找击杀数
     const ms = (simData.monsterStats || []).find(m => m.monsterName === monName);
     const killCnt = ms ? ms.killCount : 0;
     monRows.push([monName, `${fmtNum(killCnt)} / ${fmtNum(dropCnt)}`]);
@@ -402,7 +419,7 @@ function filterByItem(itemName, simData) {
     const db = parseInt(b[1].split('/')[1].trim().replace(/,/g,''));
     return db - da;
   });
-  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows);
+  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows, 'monster', simData);
 
   setStatus(`已选中物品: ${itemName} | 地图:${mapRows.length}个 怪物:${monRows.length}个`);
 }
@@ -411,7 +428,6 @@ function filterByMap(mapName, simData) {
   // 筛选该地图中的怪物
   const monMap = {};
   const imm = simData.itemMonsterMapDrops || {};
-  // 汇总每个怪物在该地图的总掉落数和涉及物品数
   for (const [itemName, monsterMaps] of Object.entries(imm)) {
     for (const [monName, mapCnts] of Object.entries(monsterMaps)) {
       const cnt = mapCnts[mapName] || 0;
@@ -431,7 +447,7 @@ function filterByMap(mapName, simData) {
     const db = parseInt(b[1].split('/')[1].trim().replace(/,/g,''));
     return db - da;
   });
-  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows);
+  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows, 'monster', simData);
   setStatus(`已选中地图: ${mapName} | 怪物:${monRows.length}个`);
 }
 
