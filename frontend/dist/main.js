@@ -594,8 +594,9 @@ function initTuneTab() {
     });
     if (targets.length === 0) return setStatus('请至少设置一个地图的目标时间');
     try {
-      tuneRecommend = await window.go.app.App.RecommendRates(itemName, targets);
-      renderTuneRecommend();
+      const roundMode = $('tuneRoundMode').value || 'precision';
+      tuneRecommend = await window.go.app.App.RecommendRates(itemName, targets, roundMode);
+      renderTuneRecommend($('tuneRoundMode').selectedOptions[0].textContent);
       $('tuneRecommendSection').style.display = '';
       $('tuneCopySection').style.display = '';
       // 填充复制目标物品列表
@@ -700,28 +701,31 @@ function renderTuneTargets() {
   $('tuneTargets').innerHTML = html;
 }
 
-function renderTuneRecommend() {
+function renderTuneRecommend(modeName) {
   if (!tuneRecommend) return;
   $('tuneRecommendCount').textContent = `(${tuneRecommend.length}条)`;
   let html = `<table class="tune-table">
-    <colgroup><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:120px"><col style="width:120px"></colgroup>
-    <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th></tr>`;
+    <colgroup><col style="width:130px"><col style="width:130px"><col style="width:100px"><col style="width:120px"><col style="width:100px"><col style="width:80px"></colgroup>
+    <tr><th>地图</th><th>怪物</th><th>当前爆率</th><th>推荐爆率</th><th>修改后期望</th><th>偏差</th></tr>`;
   tuneRecommend.forEach((c, i) => {
     const oldProb = c.oldNum + '/' + c.oldDen;
     const oldExpH = c.oldExpectH || 0;
-    html += `<tr class="rec-row" data-old-exp="${oldExpH}" data-old-den="${c.oldDen}">
+    const dev = c.deviation || 0;
+    const devSign = dev >= 0 ? '+' : '';
+    const devCls = Math.abs(dev) < 5 ? 'dev-ok' : Math.abs(dev) < 15 ? 'dev-warn' : 'dev-bad';
+    html += `<tr class="rec-row" data-old-exp="${oldExpH}" data-old-den="${c.oldDen}" data-target-h="${c.newExpectH / (1 + dev/100) || 0}">
       <td>${c.mapName}</td>
       <td>${c.monsterName}</td>
       <td class="num prob">${oldProb}</td>
       <td class="num">${c.newNum}/<input type="text" class="rec-den" value="${c.newDen}" data-idx="${i}" style="width:65px" /></td>
       <td class="num exp-h">${c.newExpectH.toFixed(1)}h</td>
+      <td class="num ${devCls}">${devSign}${dev.toFixed(1)}%</td>
     </tr>`;
   });
   html += '</table>';
   $('tuneRecommendTable').innerHTML = html;
 
-  // 实时更新：修改分母后自动重算期望小时
-  // 公式：newExpectH = oldExpectH * newDen / oldDen
+  // 实时更新：修改分母后自动重算期望小时和偏差
   document.querySelectorAll('.rec-den').forEach(input => {
     input.oninput = () => {
       const row = input.closest('.rec-row');
@@ -729,13 +733,24 @@ function renderTuneRecommend() {
       const oldDen = parseInt(row.dataset.oldDen) || 1;
       const newDen = parseInt(input.value) || 1;
       const expCell = row.querySelector('.exp-h');
+      const devCell = row.querySelector('td:last-child');
+      const targetH = parseFloat(row.dataset.targetH) || 0;
       if (oldExpH > 0 && newDen > 0 && oldDen > 0) {
         const newExpectH = oldExpH * newDen / oldDen;
         expCell.textContent = newExpectH.toFixed(1) + 'h';
+        // 计算偏差
+        let dev = 0;
+        if (targetH > 0) {
+          dev = (newExpectH - targetH) / targetH * 100;
+        }
+        const devSign = dev >= 0 ? '+' : '';
+        devCell.textContent = devSign + dev.toFixed(1) + '%';
+        devCell.className = 'num ' + (Math.abs(dev) < 5 ? 'dev-ok' : Math.abs(dev) < 15 ? 'dev-warn' : 'dev-bad');
         const idx = parseInt(input.dataset.idx);
         if (!isNaN(idx) && tuneRecommend[idx]) {
           tuneRecommend[idx].newDen = newDen;
           tuneRecommend[idx].newExpectH = newExpectH;
+          tuneRecommend[idx].deviation = dev;
         }
       }
     };

@@ -3,10 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
-	"math"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -16,6 +14,7 @@ import (
 	"github.com/yueyoue/legend-drop-tool/pkg/editor"
 	"github.com/yueyoue/legend-drop-tool/pkg/parser"
 	"github.com/yueyoue/legend-drop-tool/pkg/simulator"
+	"github.com/yueyoue/legend-drop-tool/pkg/tuner"
 )
 
 // App 后端绑定，所有 public 方法自动暴露给前端
@@ -780,6 +779,7 @@ type RateChange struct {
 	NewNum       int     `json:"newNum"`
 	NewDen       int     `json:"newDen"`
 	NewExpectH   float64 `json:"newExpectH"` // 修改后期望小时
+	Deviation    float64 `json:"deviation"`  // 偏差百分比（正=比目标长，负=比目标短）
 }
 
 // TargetRate 目标爆率
@@ -939,7 +939,8 @@ func (a *App) analyzeFromSim(itemName string) (*RateAnalysis, error) {
 
 // RecommendRates 根据目标时间推荐爆率修改
 // targets: 每个地图的目标小时数
-func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChange, error) {
+// roundMode: 取整模式 - "precision"(精准) / "nearest"(就近阶梯) / "up"(向上阶梯)
+func (a *App) RecommendRates(itemName string, targets []TargetRate, roundMode string) ([]RateChange, error) {
 	if a.currentResults == nil {
 		return nil, fmt.Errorf("请先加载爆率文件")
 	}
@@ -980,16 +981,10 @@ func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChang
 			oldExpectH := a.calcExpectHours(monsterName, e.ProbabilityNumerator, e.ProbabilityDenominator)
 
 			// 反算推荐分母：
-			// oldExpectH = 1 / (kph * num/oldDen) => kph = oldDen / (num * oldExpectH)
-			// targetH = 1 / (kph * num/newDen) => newDen = kph * num * targetH
-			// 合并：newDen = oldDen * targetH / oldExpectH
-			var newDen int
-			if oldExpectH > 0 && targetH > 0 {
-				rawDen := float64(e.ProbabilityDenominator) * targetH / oldExpectH
-				newDen = roundToNiceDenominator(rawDen)
-			} else {
-				newDen = e.ProbabilityDenominator
-			}
+			// den_target_raw = den_old * (expectH_target / expectH_old)
+			// 核心结论：在 kph 不变的前提下，期望时间与爆率分母成正比
+			mode := tuner.RoundMode(roundMode)
+			newDen := tuner.CalcRecommendDenominator(e.ProbabilityDenominator, oldExpectH, targetH, mode)
 
 			// 修改后期望：newExpectH = oldExpectH * newDen / oldDen
 			var newExpectH float64
@@ -998,6 +993,9 @@ func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChang
 			} else {
 				newExpectH = oldExpectH
 			}
+
+			// 偏差：deviation = (newExpectH - targetH) / targetH * 100%
+			deviation := tuner.CalcDeviation(newExpectH, targetH)
 
 			changes = append(changes, RateChange{
 				MonsterName:  monsterName,
@@ -1010,6 +1008,7 @@ func (a *App) RecommendRates(itemName string, targets []TargetRate) ([]RateChang
 				NewNum:       e.ProbabilityNumerator,
 				NewDen:       newDen,
 				NewExpectH:   newExpectH,
+				Deviation:    deviation,
 			})
 		}
 	}
@@ -1167,11 +1166,7 @@ func (a *App) calcExpectHours(monsterName string, probNum, probDen int) float64 
 		refreshSec, count := findMonGenInfo(a.monGenEntries, monsterName)
 		kph = float64(count) * 3600.0 / refreshSec
 	}
-	prob := float64(probNum) / float64(probDen)
-	if prob > 0 && kph > 0 {
-		return 1.0 / (kph * prob)
-	}
-	return 999999
+	return tuner.CalcExpectHours(kph, probNum, probDen)
 }
 
 // findMapForMonster 从 MonGen 中查找怪物所在的地图
@@ -1184,21 +1179,5 @@ func findMapForMonster(entries []*parser.MonGenEntry, monsterName string) string
 	return "未知地图"
 }
 
-// roundToNiceDenominator 将分母取整到"好看"的数字（向上取整，确保爆率不低于目标）
-func roundToNiceDenominator(raw float64) int {
-	if raw <= 0 {
-		return 1
-	}
-	// 向上取整到 1/2/5/10/20/50/100/200/500/1000 等阶梯
-	niceValues := []int{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000}
-	for _, n := range niceValues {
-		if float64(n) >= raw {
-			return n
-		}
-	}
-	// 超大值，向上取整到万
-	return int(math.Ceil(raw/10000)) * 10000
-}
-
-// Placeholder 防止空 import
-var _ = strconv.Itoa
+// roundToNiceDenominator 已迁移至 pkg/tuner 包
+// 使用 tuner.RoundDenominator(raw, mode) 替代

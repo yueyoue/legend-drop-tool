@@ -145,6 +145,12 @@
             <div class="tune-section-hdr">🎯 设置目标时间（小时/个）</div>
             <div class="tune-targets" id="tuneTargets"></div>
             <div class="tune-actions">
+              <label style="margin-right:8px">取整模式:</label>
+              <select id="tuneRoundMode" style="margin-right:12px;background:var(--bg0);border:1px solid var(--border);color:var(--t1);padding:4px 8px;border-radius:var(--r)">
+                <option value="precision">精准取整（推荐）</option>
+                <option value="nearest">就近阶梯取整</option>
+                <option value="up">向上阶梯取整</option>
+              </select>
               <button class="btn btn-gold" id="btnCalcRecommend">📊 计算推荐爆率</button>
             </div>
           </div>
@@ -210,7 +216,7 @@
   <!-- ===== 状态栏 ===== -->
   <div class="statusbar">
     <span id="statusText">就绪 - 请选择传奇服务端目录</span>
-    <span class="version">v2.0.0</span>
+    <span class="version">v2.1.0</span>
   </div>
 </div>
 
