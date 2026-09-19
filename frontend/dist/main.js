@@ -7,6 +7,8 @@ let monsters = [];
 let simResult = null;
 let logEntries = [];
 let selectedSimItem = ''; // 当前模拟结果中选中的物品名（用于级联筛选）
+let mapViewMode = false; // 地图视图模式
+let mapViewData = null;   // 地图视图缓存数据
 
 // ===== DOM =====
 const $ = id => document.getElementById(id);
@@ -40,6 +42,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initTabs();
   initToolbar();
   initEditTab();
+  initMapViewSearch();
   initSimTab();
   initTuneTab();
   initAuthTab();
@@ -173,6 +176,43 @@ function renderEntries(entries) {
 
 // ===== 爆率修改 =====
 function initEditTab() {
+  // 地图视图/怪物列表切换
+  $('btnViewMonster').onclick = () => {
+    if (!mapViewMode) return;
+    mapViewMode = false;
+    $('btnViewMonster').classList.add('active');
+    $('btnViewMap').classList.remove('active');
+    $('sidebar').style.display = 'flex';
+    $('entryList').style.display = '';
+    $('mapViewContainer').style.display = 'none';
+    // 恢复编辑按钮
+    $('btnAdd').style.display = '';
+    $('btnMul').style.display = '';
+    $('btnSetProb').style.display = '';
+    $('btnAnomaly').style.display = '';
+    $('btnBackup').style.display = '';
+    $('btnBackupAll').style.display = '';
+    $('btnSave').style.display = '';
+  };
+  $('btnViewMap').onclick = () => {
+    if (mapViewMode) return;
+    mapViewMode = true;
+    $('btnViewMap').classList.add('active');
+    $('btnViewMonster').classList.remove('active');
+    $('sidebar').style.display = 'none';
+    $('entryList').style.display = 'none';
+    $('mapViewContainer').style.display = 'flex';
+    // 隐藏仅普通模式用的按钮
+    $('btnAdd').style.display = 'none';
+    $('btnMul').style.display = 'none';
+    $('btnSetProb').style.display = 'none';
+    $('btnAnomaly').style.display = 'none';
+    $('btnBackup').style.display = 'none';
+    $('btnBackupAll').style.display = 'none';
+    $('btnSave').style.display = 'none';
+    loadMapView();
+  };
+
   $('btnAdd').onclick = () => {
     if (currentMonsterIdx < 0) return setStatus('请先选择怪物');
     showModal('新增掉落配置', `
@@ -598,6 +638,163 @@ function updateFilterBadges() {
   $('monsterCount').textContent = `(${filterMonsters.length})`;
   $('itemCount').textContent = `(${filterItems.length})`;
   $('mapCount').textContent = `(${filterMaps.length})`;
+}
+
+// ===== 地图视图（按地图查看怪物和爆率） =====
+async function loadMapView() {
+  try {
+    showLoading('正在加载地图视图...');
+    const maps = await window.go.app.App.GetMapMonsterView();
+    mapViewData = { maps: maps || [], selectedMap: '', selectedMonster: -1 };
+    renderMapViewMaps();
+    $('mapViewMonBody').innerHTML = '';
+    $('mapViewEntryBody').innerHTML = '';
+    $('mapViewMapCount').textContent = `(${(maps||[]).length}个)`;
+    $('mapViewMonCount').textContent = '';
+    $('mapViewItemCount').textContent = '';
+  } catch(e) {
+    setStatus('加载地图视图失败: ' + e);
+  } finally {
+    hideLoading();
+  }
+}
+
+function renderMapViewMaps() {
+  const body = $('mapViewMapBody');
+  const maps = (mapViewData && mapViewData.maps) || [];
+  let html = `<div class="rrow hdr"><span class="lbl">地图名称</span><span class="val">怪物数</span></div>`;
+  maps.forEach((m, i) => {
+    html += `<div class="rrow" data-idx="${i}" data-name="${m.mapName}"><span class="lbl">${m.displayName}</span><span class="val">${m.monsterCount}</span></div>`;
+  });
+  body.innerHTML = html;
+  // 点击地图 → 加载怪物列表
+  body.querySelectorAll('.rrow[data-idx]').forEach(el => {
+    el.onclick = async () => {
+      body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
+      el.classList.add('selected');
+      const mapName = el.dataset.name;
+      mapViewData.selectedMap = mapName;
+      mapViewData.selectedMonster = -1;
+      await loadMapViewMonsters(mapName);
+    };
+  });
+}
+
+async function loadMapViewMonsters(mapName) {
+  try {
+    const monsters = await window.go.app.App.GetMapMonsters(mapName);
+    const body = $('mapViewMonBody');
+    const list = monsters || [];
+    let html = `<div class="rrow hdr"><span class="lbl">怪物名称</span><span class="val">掉落条目</span></div>`;
+    list.forEach((m, i) => {
+      html += `<div class="rrow" data-idx="${i}" data-name="${m.monsterName}" data-midx="${m.monsterIndex}"><span class="lbl">${m.monsterName}</span><span class="val">${m.entryCount}条</span></div>`;
+    });
+    body.innerHTML = html;
+    $('mapViewMonCount').textContent = `(${list.length}个)`;
+    $('mapViewEntryBody').innerHTML = '';
+    $('mapViewItemCount').textContent = '';
+    // 点击怪物 → 加载掉落条目
+    body.querySelectorAll('.rrow[data-idx]').forEach(el => {
+      el.onclick = async () => {
+        body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
+        el.classList.add('selected');
+        const monsterIdx = parseInt(el.dataset.midx);
+        mapViewData.selectedMonster = monsterIdx;
+        await loadMapViewEntries(monsterIdx);
+      };
+    });
+  } catch(e) {
+    setStatus('加载怪物列表失败: ' + e);
+  }
+}
+
+async function loadMapViewEntries(monsterIndex) {
+  try {
+    const entries = await window.go.app.App.GetEntries(monsterIndex);
+    renderMapViewEntries(entries, monsterIndex);
+  } catch(e) {
+    setStatus('加载掉落条目失败: ' + e);
+  }
+}
+
+function renderMapViewEntries(entries, monsterIndex) {
+  const body = $('mapViewEntryBody');
+  if (!entries) { body.innerHTML = ''; return; }
+  let count = 0;
+  let html = '';
+  entries.forEach((e, i) => {
+    if (e.isComment && !e.isEditable) return; // 跳过纯注释行
+    const indent = '  '.repeat(e.depth);
+    let icon = '🎯', cls = '', text = '';
+    if (e.isComment) { icon = '📝'; cls = 'ecomm'; text = e.rawLine; }
+    else if (e.isCallRef) { icon = '📎'; cls = 'ecall'; text = `#CALL [${e.callPath}]` + (e.callLabel ? ' ' + e.callLabel : ''); }
+    else if (e.isChildStart) { icon = '📦'; cls = 'echild'; text = `#CHILD ${e.childProb}` + (e.childRandom ? ' RANDOM' : ''); }
+    else if (e.isChildEnd) { icon = '📦'; cls = 'echild'; text = ')'; }
+    else if (e.isCaseStart) { icon = '🔀'; cls = 'echild'; text = `#CASE ${e.caseExpr}`; }
+    else if (e.isIfStart) { icon = '🔀'; cls = 'echild'; text = `#IF ${e.caseExpr}`; }
+    else if (e.isEditable) {
+      const trig = e.hasTrigger ? ` |${e.triggerName}` : '';
+      text = `<span class="prob">${e.probStr}</span> <span class="iname">${e.itemName}</span><span class="trig">${trig}</span> <span class="qty">x${e.quantity}</span>`;
+      html += `<div class="entry" data-eidx="${e.index}"><span class="icon">${icon}</span><span>${indent}${text}</span></div>`;
+      count++;
+      return;
+    }
+    else { text = e.rawLine; }
+    html += `<div class="entry"><span class="icon ${cls}">${icon}</span><span class="${cls}">${indent}${text}</span></div>`;
+  });
+  body.innerHTML = html;
+  $('mapViewItemCount').textContent = `(${count}条可编辑)`;
+  // 点击可编辑条目 → 弹出编辑对话框（复用已有 showEditDialog）
+  body.querySelectorAll('.entry[data-eidx]').forEach(el => {
+    el.onclick = () => {
+      const entryIdx = parseInt(el.dataset.eidx);
+      const entry = entries.find(e => e.index === entryIdx);
+      if (entry && entry.isEditable) {
+        showMapViewEditDialog(monsterIndex, entryIdx, entry);
+      }
+    };
+  });
+}
+
+function showMapViewEditDialog(monsterIndex, entryIndex, entry) {
+  showModal('修改掉落配置', `
+    <div class="form-row"><label>怪物:</label><span style="color:#5b9df0">${monsters.find((m,i) => i === monsterIndex)?.name || ''}</span></div>
+    <div class="form-row"><label>物品名称:</label><span style="color:#5b9df0">${entry.itemName}</span></div>
+    <div class="form-row"><label>概率分子:</label><input type="text" id="mNum" value="${entry.probNum}" /></div>
+    <div class="form-row"><label>概率分母:</label><input type="text" id="mDen" value="${entry.probDen}" /></div>
+    <div class="form-row"><label>掉落数量:</label><input type="text" id="mQty" value="${entry.quantity}" /></div>
+  `, [
+    {text:'保存',cls:'btn-gold',action:async()=>{
+      const num=+$('mNum').value,den=+$('mDen').value,qty=+$('mQty').value;
+      if(den<=0||qty<=0) return setStatus('请输入有效正整数');
+      await window.go.app.App.ModifyEntry(monsterIndex,entryIndex,num,den,qty);
+      hideModal();
+      // 刷新条目列表
+      await loadMapViewEntries(monsterIndex);
+      addLog(`修改 ${entry.itemName}: ${num}/${den} x${qty}`);
+    }},
+    {text:'取消',cls:'',action:hideModal}
+  ]);
+}
+
+// 地图视图搜索过滤
+function initMapViewSearch() {
+  $('mapViewMapSearch').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    const rows = $('mapViewMapBody').querySelectorAll('.rrow:not(.hdr)');
+    rows.forEach(r => {
+      const text = r.textContent.toLowerCase();
+      r.style.display = text.includes(q) ? '' : 'none';
+    });
+  };
+  $('mapViewMonSearch').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    const rows = $('mapViewMonBody').querySelectorAll('.rrow:not(.hdr)');
+    rows.forEach(r => {
+      const text = r.textContent.toLowerCase();
+      r.style.display = text.includes(q) ? '' : 'none';
+    });
+  };
 }
 
 // ===== 爆率调配 =====

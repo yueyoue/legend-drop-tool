@@ -678,8 +678,132 @@ func (a *App) GetAllMapNames() []string {
 }
 
 // ============================================================
-// 文件对话框（Wails 前端调用）
+// 地图视图（按地图查看怪物和爆率）
 // ============================================================
+
+// MapViewMap 地图视图 - 地图信息
+type MapViewMap struct {
+	MapName      string `json:"mapName"`
+	DisplayName  string `json:"displayName"`
+	MonsterCount int    `json:"monsterCount"`
+}
+
+// MapViewMonster 地图视图 - 怪物信息
+type MapViewMonster struct {
+	MonsterName  string `json:"monsterName"`
+	MonsterIndex int    `json:"monsterIndex"` // currentResults 中的索引
+	EntryCount   int    `json:"entryCount"`   // 掉落条目数
+}
+
+// GetMapMonsterView 获取地图视图数据：所有地图及其怪物数量
+func (a *App) GetMapMonsterView() []MapViewMap {
+	if a.monGenEntries == nil && a.currentResults == nil {
+		return nil
+	}
+
+	type mapInfo struct {
+		displayName string
+		monsters    map[string]bool
+	}
+	mapSet := make(map[string]*mapInfo)
+
+	// 从 MonGen 提取地图→怪物关系
+	for _, e := range a.monGenEntries {
+		mapName := strings.TrimSpace(e.MapName)
+		if mapName == "" {
+			continue
+		}
+		if _, ok := mapSet[mapName]; !ok {
+			displayName := mapName
+			if a.mapInfoLookup != nil {
+				if desc, ok := a.mapInfoLookup[mapName]; ok && desc != "" {
+					displayName = mapName + " (" + desc + ")"
+				}
+			}
+			mapSet[mapName] = &mapInfo{displayName: displayName, monsters: make(map[string]bool)}
+		}
+		mapSet[mapName].monsters[e.MonsterName] = true
+	}
+
+	// 如果 MonGen 没数据，从怪物掉落文件名推断
+	if len(mapSet) == 0 && a.currentResults != nil {
+		for _, r := range a.currentResults {
+			mapName := r.File.MonsterName
+			if _, ok := mapSet[mapName]; !ok {
+				mapSet[mapName] = &mapInfo{displayName: mapName, monsters: make(map[string]bool)}
+			}
+			mapSet[mapName].monsters[mapName] = true
+		}
+	}
+
+	var result []MapViewMap
+	for mapName, info := range mapSet {
+		result = append(result, MapViewMap{
+			MapName:      mapName,
+			DisplayName:  info.displayName,
+			MonsterCount: len(info.monsters),
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].DisplayName < result[j].DisplayName
+	})
+	return result
+}
+
+// GetMapMonsters 获取指定地图下的怪物列表（含条目数）
+func (a *App) GetMapMonsters(mapName string) []MapViewMonster {
+	if a.currentResults == nil {
+		return nil
+	}
+
+	// 收集该地图的怪物名
+	monsterSet := make(map[string]bool)
+	for _, e := range a.monGenEntries {
+		if strings.TrimSpace(e.MapName) == mapName {
+			monsterSet[e.MonsterName] = true
+		}
+	}
+
+	// 如果 MonGen 没数据，把 mapName 当怪物名处理
+	if len(monsterSet) == 0 {
+		monsterSet[mapName] = true
+	}
+
+	var result []MapViewMonster
+	for _, r := range a.currentResults {
+		if monsterSet[r.File.MonsterName] {
+			editableCount := 0
+			for _, e := range r.File.Entries {
+				if e.IsEditable() {
+					editableCount++
+				}
+			}
+			result = append(result, MapViewMonster{
+				MonsterName:  r.File.MonsterName,
+				MonsterIndex: findMonsterIndex(a.currentResults, r.File.MonsterName),
+				EntryCount:   editableCount,
+			})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].MonsterName < result[j].MonsterName
+	})
+	return result
+}
+
+// findMonsterIndex 查找怪物在 currentResults 中的索引
+func findMonsterIndex(results []*parser.ParseResult, monsterName string) int {
+	for i, r := range results {
+		if r.File.MonsterName == monsterName {
+			return i
+		}
+	}
+	return -1
+}
+
+// ============================================================
+// 文件对话框（Wails 前端调用）
+// =======================================================================
 
 // SelectDirectory 打开系统目录选择对话框
 func (a *App) SelectDirectory() (string, error) {

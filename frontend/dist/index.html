@@ -45,6 +45,9 @@
         <!-- ===== 爆率修改 ===== -->
         <div class="tab-pane active" id="pane-edit">
           <div class="edit-toolbar">
+            <span class="view-toggle active" id="btnViewMonster" title="按怪物列表查看">👹 怪物列表</span>
+            <span class="view-toggle" id="btnViewMap" title="按地图查看">🗺️ 地图视图</span>
+            <div class="sep"></div>
             <button class="btn btn-sm" id="btnAdd">➕ 新增</button>
             <button class="btn btn-sm" id="btnMul">✖️ 批量倍率</button>
             <button class="btn btn-sm" id="btnSetProb">🎯 批量概率</button>
@@ -55,7 +58,25 @@
             <div style="flex:1"></div>
             <button class="btn btn-sm btn-gold" id="btnSave">💾 保存</button>
           </div>
+          <!-- 普通模式：怪物列表 + 条目 -->
           <div class="entry-list" id="entryList"></div>
+          <!-- 地图视图模式 -->
+          <div class="mapview-container" id="mapViewContainer" style="display:none">
+            <div class="mapview-col">
+              <div class="mapview-col-hdr">🗺️ 地图列表 <span class="badge" id="mapViewMapCount"></span></div>
+              <div class="mapview-search"><input type="text" id="mapViewMapSearch" placeholder="搜索地图..." /></div>
+              <div class="mapview-body" id="mapViewMapBody"></div>
+            </div>
+            <div class="mapview-col">
+              <div class="mapview-col-hdr">👹 怪物列表 <span class="badge" id="mapViewMonCount"></span></div>
+              <div class="mapview-search"><input type="text" id="mapViewMonSearch" placeholder="搜索怪物..." /></div>
+              <div class="mapview-body" id="mapViewMonBody"></div>
+            </div>
+            <div class="mapview-col">
+              <div class="mapview-col-hdr">📋 掉落物品 <span class="badge" id="mapViewItemCount"></span></div>
+              <div class="mapview-body" id="mapViewEntryBody"></div>
+            </div>
+          </div>
         </div>
 
         <!-- ===== 爆率模拟 ===== -->
@@ -218,7 +239,7 @@
   <!-- ===== 状态栏 ===== -->
   <div class="statusbar">
     <span id="statusText">就绪 - 请选择传奇服务端目录</span>
-    <span class="version">v2.1.3</span>
+    <span class="version">v2.2.0</span>
   </div>
 </div>
 
