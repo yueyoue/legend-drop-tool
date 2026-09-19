@@ -157,9 +157,17 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 .help-text{font-size:12px;color:var(--t3);line-height:1.8}
 .auth-content input[type=text]{flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--t1);padding:5px 10px;border-radius:var(--r);font-size:12px}
 
+/* loading overlay */
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center}
+.loading-overlay.show{display:flex}
+.loading-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:28px 40px;display:flex;flex-direction:column;align-items:center;gap:16px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.loading-spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{color:var(--t1);font-size:13px;font-weight:500}
+
 /* statusbar */
-.statusbar{padding:5px 16px;background:var(--bg1);border-top:1px solid var(--border);font-size:11px;color:var(--t3);display:flex;justify-content:space-between;flex-shrink:0}
-.version{color:var(--t3)}
+.statusbar{padding:6px 16px;background:linear-gradient(90deg,var(--bg1),var(--bg2));border-top:1px solid var(--border2);font-size:12px;color:var(--accent);display:flex;justify-content:space-between;flex-shrink:0;font-weight:500;letter-spacing:.3px}
+.statusbar .version{color:var(--t2);font-weight:400}
 
 /* modal */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}

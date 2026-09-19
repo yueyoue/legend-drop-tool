@@ -6,6 +6,7 @@ let currentMonsterIdx = -1;
 let monsters = [];
 let simResult = null;
 let logEntries = [];
+let selectedSimItem = ''; // 当前模拟结果中选中的物品名（用于级联筛选）
 
 // ===== DOM =====
 const $ = id => document.getElementById(id);
@@ -97,6 +98,7 @@ function initToolbar() {
     const path = $('serverPath').value;
     if (!path) return setStatus('请选择服务端目录');
     try {
+      showLoading('正在加载爆率文件，请稍候...');
       const result = await window.go.app.App.LoadFiles(path);
       monsters = result.monsters;
       renderMonsterList();
@@ -106,6 +108,7 @@ function initToolbar() {
         showModal('解析提示', `<div style="max-height:400px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre">${result.warnings.join('\n')}</div>`, [{text:'确定',cls:'btn-gold',action:hideModal}]);
       }
     } catch(e) { setStatus('错误: ' + e); }
+    finally { hideLoading(); }
   };
 
   $('engineSelect').onchange = () => {
@@ -297,6 +300,7 @@ function initSimTab() {
 
   $('btnSim').onclick = async () => {
     try {
+      showLoading('正在运行爆率模拟，请稍候...');
       setStatus('正在模拟...');
       const req = {
         durationHours: +$('simDuration').value,
@@ -312,6 +316,7 @@ function initSimTab() {
       setStatus(`模拟完成 — 击杀:${simResult.totalKills} 掉落:${simResult.totalDrops} 空爆率:${(simResult.emptyRate*100).toFixed(1)}%`);
       addLog(`模拟完成: ${simResult.totalKills}击杀 ${simResult.totalDrops}掉落`);
     } catch(e) { setStatus('模拟失败: ' + e); }
+    finally { hideLoading(); }
   };
 
   $('btnExport').onclick = async () => {
@@ -331,6 +336,7 @@ function initSimTab() {
 }
 
 function renderSimResult(r) {
+  selectedSimItem = ''; // 重置选中物品
   // 物品表（支持点击筛选）
   renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]), 'item', r);
   // 地图表（支持点击筛选）
@@ -355,25 +361,46 @@ function renderCol(bodyId, headers, rows, type, simData) {
     html += `<div class="rrow"${clickAttr}><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
   });
   body.innerHTML = html;
-  // 物品行点击 → 筛选地图和怪物
+  // 物品行点击 → 筛选地图和怪物（再次点击取消筛选）
   if (type === 'item' && simData) {
     body.querySelectorAll('.rrow[data-idx]').forEach(el => {
       el.onclick = () => {
         const itemName = el.dataset.name;
+        const wasSelected = el.classList.contains('selected');
         body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
-        el.classList.add('selected');
-        filterByItem(itemName, simData);
+        if (wasSelected) {
+          // 取消选中，恢复全部数据
+          selectedSimItem = '';
+          renderCol('mapTableBody', ['地图名称','掉落数量'], simData.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]), 'map', simData);
+          renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], simData.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]), 'monster', simData);
+          setStatus('已取消物品筛选');
+        } else {
+          el.classList.add('selected');
+          filterByItem(itemName, simData);
+        }
       };
     });
   }
-  // 地图行点击 → 筛选怪物
+  // 地图行点击 → 筛选怪物（再次点击取消筛选）
   if (type === 'map' && simData) {
     body.querySelectorAll('.rrow[data-idx]').forEach(el => {
       el.onclick = () => {
         const mapName = el.dataset.name;
+        const wasSelected = el.classList.contains('selected');
         body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
-        el.classList.add('selected');
-        filterByMap(mapName, simData);
+        if (wasSelected) {
+          // 取消选中，恢复怪物列表
+          if (selectedSimItem) {
+            // 有物品选中时，恢复到物品筛选状态
+            filterByItem(selectedSimItem, simData);
+          } else {
+            renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], simData.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]), 'monster', simData);
+          }
+          setStatus('已取消地图筛选');
+        } else {
+          el.classList.add('selected');
+          filterByMap(mapName, simData);
+        }
       };
     });
   }
@@ -400,6 +427,7 @@ function renderCol(bodyId, headers, rows, type, simData) {
 }
 
 function filterByItem(itemName, simData) {
+  selectedSimItem = itemName; // 记录当前选中的物品
   // 筛选地图
   const mapDrops = (simData.itemMapDrops || {})[itemName] || {};
   const mapRows = Object.entries(mapDrops)
@@ -426,30 +454,52 @@ function filterByItem(itemName, simData) {
 }
 
 function filterByMap(mapName, simData) {
-  // 筛选该地图中的怪物
-  const monMap = {};
-  const imm = simData.itemMonsterMapDrops || {};
-  for (const [itemName, monsterMaps] of Object.entries(imm)) {
-    for (const [monName, mapCnts] of Object.entries(monsterMaps)) {
+  const monRows = [];
+
+  if (selectedSimItem && (simData.itemMonsterMapDrops || {})[selectedSimItem]) {
+    // 级联模式：已选中物品，筛选该物品在该地图的怪物掉落
+    const monsterMapDrops = simData.itemMonsterMapDrops[selectedSimItem];
+    for (const [monName, mapCnts] of Object.entries(monsterMapDrops)) {
       const cnt = mapCnts[mapName] || 0;
       if (cnt > 0) {
-        if (!monMap[monName]) monMap[monName] = { drops: 0, items: 0 };
-        monMap[monName].drops += cnt;
-        monMap[monName].items++;
+        const ms = (simData.monsterStats || []).find(m => m.monsterName === monName);
+        const killCnt = ms ? ms.killCount : 0;
+        monRows.push([monName, `${fmtNum(killCnt)} / ${fmtNum(cnt)}`]);
       }
     }
+    monRows.sort((a, b) => {
+      const da = parseInt(a[1].split('/')[1].trim().replace(/,/g,''));
+      const db = parseInt(b[1].split('/')[1].trim().replace(/,/g,''));
+      return db - da;
+    });
+    renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows, 'monster', simData);
+    setStatus(`已选中物品: ${selectedSimItem} + 地图: ${mapName} | 怪物:${monRows.length}个`);
+  } else {
+    // 全局模式：未选中物品，显示该地图所有怪物
+    const monMap = {};
+    const imm = simData.itemMonsterMapDrops || {};
+    for (const [itemName, monsterMaps] of Object.entries(imm)) {
+      for (const [monName, mapCnts] of Object.entries(monsterMaps)) {
+        const cnt = mapCnts[mapName] || 0;
+        if (cnt > 0) {
+          if (!monMap[monName]) monMap[monName] = { drops: 0 };
+          monMap[monName].drops += cnt;
+        }
+      }
+    }
+    for (const [name, info] of Object.entries(monMap)) {
+      const ms = (simData.monsterStats || []).find(m => m.monsterName === name);
+      const killCnt = ms ? ms.killCount : 0;
+      monRows.push([name, `${fmtNum(killCnt)} / ${fmtNum(info.drops)}`]);
+    }
+    monRows.sort((a, b) => {
+      const da = parseInt(a[1].split('/')[1].trim().replace(/,/g,''));
+      const db = parseInt(b[1].split('/')[1].trim().replace(/,/g,''));
+      return db - da;
+    });
+    renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows, 'monster', simData);
+    setStatus(`已选中地图: ${mapName} | 怪物:${monRows.length}个`);
   }
-  const monRows = Object.entries(monMap).map(([name, info]) => {
-    const ms = (simData.monsterStats || []).find(m => m.monsterName === name);
-    const killCnt = ms ? ms.killCount : 0;
-    return [name, `${fmtNum(killCnt)} / ${fmtNum(info.drops)}`];
-  }).sort((a, b) => {
-    const da = parseInt(a[1].split('/')[1].trim().replace(/,/g,''));
-    const db = parseInt(b[1].split('/')[1].trim().replace(/,/g,''));
-    return db - da;
-  });
-  renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], monRows, 'monster', simData);
-  setStatus(`已选中地图: ${mapName} | 怪物:${monRows.length}个`);
 }
 
 function filterTable(bodyId, query) {
@@ -839,6 +889,15 @@ async function loadLicenseStatus() {
     const code = await window.go.app.App.GetMachineID();
     $('machineCode').textContent = code;
   } catch(e) {}
+}
+
+// ===== 加载提示 =====
+function showLoading(text) {
+  $('loadingText').textContent = text || '加载中...';
+  $('loadingOverlay').classList.add('show');
+}
+function hideLoading() {
+  $('loadingOverlay').classList.remove('show');
 }
 
 // ===== 工具函数 =====
