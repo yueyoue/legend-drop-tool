@@ -427,8 +427,9 @@ type SimItemStat struct {
 }
 
 type SimMapStat struct {
-	MapName   string `json:"mapName"`
-	DropCount int64  `json:"dropCount"`
+	MapName    string `json:"mapName"`
+	DisplayName string `json:"displayName"`
+	DropCount  int64  `json:"dropCount"`
 }
 
 type SimMonsterStat struct {
@@ -507,9 +508,16 @@ func (a *App) RunSimulation(req SimRequest) (*SimResponse, error) {
 
 		// 地图统计
 		for _, s := range simResult.MapStats {
+			displayName := s.MapName
+			if a.mapInfoLookup != nil {
+				if desc, ok := a.mapInfoLookup[s.MapName]; ok && desc != "" {
+					displayName = s.MapName + " (" + desc + ")"
+				}
+			}
 			resp.MapStats = append(resp.MapStats, SimMapStat{
-				MapName:   s.MapName,
-				DropCount: s.DropCount,
+				MapName:    s.MapName,
+				DisplayName: displayName,
+				DropCount:  s.DropCount,
 			})
 		}
 		sort.Slice(resp.MapStats, func(i, j int) bool {
@@ -799,6 +807,62 @@ func findMonsterIndex(results []*parser.ParseResult, monsterName string) int {
 		}
 	}
 	return -1
+}
+
+// CopyMonsterRates 复制一个怪物的爆率配置到其他怪物
+// sourceMonsterIndex: 源怪物在 currentResults 中的索引
+// targetMonsterIndices: 目标怪物索引列表
+// 返回成功复制的数量
+func (a *App) CopyMonsterRates(sourceMonsterIndex int, targetMonsterIndices []int) (int, error) {
+	if a.currentResults == nil {
+		return 0, fmt.Errorf("请先加载爆率文件")
+	}
+	if sourceMonsterIndex < 0 || sourceMonsterIndex >= len(a.currentResults) {
+		return 0, fmt.Errorf("无效的源怪物索引")
+	}
+
+	sourceFile := a.currentResults[sourceMonsterIndex].File
+	// 收集源怪物的可编辑条目
+	var sourceEntries []*parser.DropEntry
+	for _, e := range sourceFile.Entries {
+		if e.IsEditable() {
+			sourceEntries = append(sourceEntries, e)
+		}
+	}
+	if len(sourceEntries) == 0 {
+		return 0, fmt.Errorf("源怪物没有可编辑的掉落条目")
+	}
+
+	copied := 0
+	for _, idx := range targetMonsterIndices {
+		if idx < 0 || idx >= len(a.currentResults) || idx == sourceMonsterIndex {
+			continue
+		}
+		targetFile := a.currentResults[idx].File
+		// 清空目标怪物的条目，用源条目替换
+		targetFile.Entries = nil
+		for _, e := range sourceEntries {
+			newEntry := *e // 复制
+			targetFile.Entries = append(targetFile.Entries, &newEntry)
+		}
+		copied++
+	}
+	return copied, nil
+}
+
+// GetMapDisplayNames 返回地图编号到显示名称的映射（供前端使用）
+func (a *App) GetMapDisplayNames() map[string]string {
+	result := make(map[string]string)
+	if a.mapInfoLookup != nil {
+		for k, v := range a.mapInfoLookup {
+			if v != "" {
+				result[k] = k + " (" + v + ")"
+			} else {
+				result[k] = k
+			}
+		}
+	}
+	return result
 }
 
 // ============================================================

@@ -43,6 +43,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initToolbar();
   initEditTab();
   initMapViewSearch();
+  initCtxMenu();
   initSimTab();
   initTuneTab();
   initAuthTab();
@@ -379,8 +380,8 @@ function renderSimResult(r) {
   selectedSimItem = ''; // 重置选中物品
   // 物品表（支持点击筛选）
   renderCol('itemTableBody', ['物品名称','掉落数量'], r.itemStats.map(s=>[s.itemName, fmtNum(s.dropCount)]), 'item', r);
-  // 地图表（支持点击筛选）
-  renderCol('mapTableBody', ['地图名称','掉落数量'], r.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]), 'map', r);
+  // 地图表（支持点击筛选）— 使用 displayName 显示
+  renderCol('mapTableBody', ['地图名称','掉落数量'], r.mapStats.map(s=>[s.displayName || s.mapName, fmtNum(s.dropCount)]), 'map', r, r.mapStats.map(s=>s.mapName));
   // 怪物表（支持双击打开爆率文件）
   renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], r.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]), 'monster', r);
   // 统计
@@ -393,11 +394,12 @@ function renderSimResult(r) {
   $('trackerItems').innerHTML = rare.map(s => `<span class="tracker-item">${s.itemName} ×${fmtNum(s.dropCount)} (${(s.prob*100).toFixed(3)}%)</span>`).join('');
 }
 
-function renderCol(bodyId, headers, rows, type, simData) {
+function renderCol(bodyId, headers, rows, type, simData, dataNames) {
   const body = $(bodyId);
   let html = `<div class="rrow hdr"><span class="lbl">${headers[0]}</span><span class="val">${headers[1]}</span></div>`;
   rows.forEach((r, i) => {
-    const clickAttr = (type === 'item' || type === 'map') ? ` data-idx="${i}" data-name="${r[0]}" style="cursor:pointer"` : (type === 'monster') ? ` data-idx="${i}" data-name="${r[0]}"` : '';
+    const dname = (dataNames && dataNames[i]) ? dataNames[i] : r[0];
+    const clickAttr = (type === 'item' || type === 'map') ? ` data-idx="${i}" data-name="${dname}" style="cursor:pointer"` : (type === 'monster') ? ` data-idx="${i}" data-name="${dname}"` : '';
     html += `<div class="rrow"${clickAttr}><span class="lbl">${r[0]}</span><span class="val">${r[1]}</span></div>`;
   });
   body.innerHTML = html;
@@ -411,7 +413,7 @@ function renderCol(bodyId, headers, rows, type, simData) {
         if (wasSelected) {
           // 取消选中，恢复全部数据
           selectedSimItem = '';
-          renderCol('mapTableBody', ['地图名称','掉落数量'], simData.mapStats.map(s=>[s.mapName, fmtNum(s.dropCount)]), 'map', simData);
+          renderCol('mapTableBody', ['地图名称','掉落数量'], simData.mapStats.map(s=>[s.displayName || s.mapName, fmtNum(s.dropCount)]), 'map', simData, simData.mapStats.map(s=>s.mapName));
           renderCol('monTableBody', ['怪物名称','击杀 / 掉落'], simData.monsterStats.map(s=>[s.monsterName, `${fmtNum(s.killCount)} / ${fmtNum(s.dropCount)}`]), 'monster', simData);
           setStatus('已取消物品筛选');
         } else {
@@ -473,7 +475,12 @@ function filterByItem(itemName, simData) {
   const mapRows = Object.entries(mapDrops)
     .map(([name, cnt]) => [name, fmtNum(cnt)])
     .sort((a, b) => parseInt(b[1].replace(/,/g,'')) - parseInt(a[1].replace(/,/g,'')));
-  renderCol('mapTableBody', ['地图名称','掉落数量'], mapRows, 'map', simData);
+  // 用 displayName 显示，data-name 保持 mapName
+  const displayNames = mapRows.map(r => {
+    const ms = (simData.mapStats || []).find(s => s.mapName === r[0]);
+    return ms ? (ms.displayName || ms.mapName) : r[0];
+  });
+  renderCol('mapTableBody', ['地图名称','掉落数量'], mapRows.map((r,i) => [displayNames[i], r[1]]), 'map', simData, mapRows.map(r=>r[0]));
 
   // 筛选怪物
   const monDrops = (simData.itemMonsterDrops || {})[itemName] || {};
@@ -645,7 +652,18 @@ async function loadMapView() {
   try {
     showLoading('正在加载地图视图...');
     const maps = await window.go.app.App.GetMapMonsterView();
-    mapViewData = { maps: maps || [], selectedMap: '', selectedMonster: -1 };
+    // 预加载所有地图的怪物，构建怪物→出现地图映射
+    const monsterMapLocations = {}; // monsterName → [displayName, ...]
+    for (const m of (maps || [])) {
+      try {
+        const mons = await window.go.app.App.GetMapMonsters(m.mapName);
+        (mons || []).forEach(mon => {
+          if (!monsterMapLocations[mon.monsterName]) monsterMapLocations[mon.monsterName] = [];
+          monsterMapLocations[mon.monsterName].push(m.displayName);
+        });
+      } catch(e) { /* skip */ }
+    }
+    mapViewData = { maps: maps || [], selectedMap: '', selectedMonster: -1, monsterMapLocations };
     renderMapViewMaps();
     $('mapViewMonBody').innerHTML = '';
     $('mapViewEntryBody').innerHTML = '';
@@ -680,32 +698,110 @@ function renderMapViewMaps() {
   });
 }
 
+// 复制爆率缓存
+let copiedMonsterRates = null; // { monsterIndex, entries }
+
 async function loadMapViewMonsters(mapName) {
   try {
     const monsters = await window.go.app.App.GetMapMonsters(mapName);
     const body = $('mapViewMonBody');
     const list = monsters || [];
+    // 从缓存获取多地图怪物信息
+    const locMap = (mapViewData && mapViewData.monsterMapLocations) || {};
+    // 获取当前地图显示名
+    const curMapDisplay = ((mapViewData.maps)||[]).find(m=>m.mapName===mapName);
+    const curDisplayName = curMapDisplay ? curMapDisplay.displayName : mapName;
+
     let html = `<div class="rrow hdr"><span class="lbl">怪物名称</span><span class="val">掉落条目</span></div>`;
     list.forEach((m, i) => {
-      html += `<div class="rrow" data-idx="${i}" data-name="${m.monsterName}" data-midx="${m.monsterIndex}"><span class="lbl">${m.monsterName}</span><span class="val">${m.entryCount}条</span></div>`;
+      const allMaps = locMap[m.monsterName] || [];
+      // 过滤掉当前地图
+      const otherMaps = allMaps.filter(d => d !== curDisplayName);
+      const multiCls = otherMaps.length > 0 ? ' multi-map' : '';
+      const tooltip = otherMaps.length > 0 ? ` title="该怪物还出现在: ${otherMaps.join(', ')}"` : '';
+      html += `<div class="rrow${multiCls}" data-idx="${i}" data-name="${m.monsterName}" data-midx="${m.monsterIndex}"${tooltip}>
+        <span class="lbl"><label class="mon-cb-wrap"><input type="checkbox" class="mon-cb" data-midx="${m.monsterIndex}" /> ${m.monsterName}</label></span>
+        <span class="val">${m.entryCount}条</span>
+      </div>`;
     });
     body.innerHTML = html;
     $('mapViewMonCount').textContent = `(${list.length}个)`;
     $('mapViewEntryBody').innerHTML = '';
     $('mapViewItemCount').textContent = '';
-    // 点击怪物 → 加载掉落条目
+    // 点击怪物行 → 加载掉落条目（点击 checkbox 区域不触发）
     body.querySelectorAll('.rrow[data-idx]').forEach(el => {
-      el.onclick = async () => {
+      el.onclick = async (e) => {
+        if (e.target.classList.contains('mon-cb')) return; // 点击 checkbox 不触发
         body.querySelectorAll('.rrow').forEach(r => r.classList.remove('selected'));
         el.classList.add('selected');
         const monsterIdx = parseInt(el.dataset.midx);
         mapViewData.selectedMonster = monsterIdx;
         await loadMapViewEntries(monsterIdx);
       };
+      // 右键菜单
+      el.oncontextmenu = (e) => {
+        e.preventDefault();
+        showCtxMenu(e.pageX, e.pageY, parseInt(el.dataset.midx));
+      };
     });
   } catch(e) {
     setStatus('加载怪物列表失败: ' + e);
   }
+}
+
+// 右键菜单
+function showCtxMenu(x, y, monsterIdx) {
+  const menu = $('ctxMenu');
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('show');
+  menu.dataset.midx = monsterIdx;
+}
+function hideCtxMenu() { $('ctxMenu').classList.remove('show'); }
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.ctx-menu')) hideCtxMenu();
+});
+
+function initCtxMenu() {
+  // 复制爆率
+  $('ctxCopyRates').onclick = async () => {
+    const idx = parseInt($('ctxMenu').dataset.midx);
+    hideCtxMenu();
+    try {
+      const entries = await window.go.app.App.GetEntries(idx);
+      copiedMonsterRates = { monsterIndex: idx, entries: entries };
+      const name = monsters[idx]?.name || '';
+      setStatus(`已复制「${name}」的爆率配置 (${(entries||[]).filter(e=>e.isEditable).length}条)`);
+    } catch(e) { setStatus('复制失败: ' + e); }
+  };
+  // 粘贴爆率
+  $('ctxPasteRates').onclick = async () => {
+    hideCtxMenu();
+    if (!copiedMonsterRates) return setStatus('请先复制爆率');
+    const checked = document.querySelectorAll('#mapViewMonBody .mon-cb:checked');
+    const targets = Array.from(checked).map(cb => parseInt(cb.dataset.midx)).filter(i => i !== copiedMonsterRates.monsterIndex);
+    if (targets.length === 0) return setStatus('请先勾选目标怪物（checkbox）');
+    try {
+      showLoading('正在粘贴爆率...');
+      const count = await window.go.app.App.CopyMonsterRates(copiedMonsterRates.monsterIndex, targets);
+      const srcName = monsters[copiedMonsterRates.monsterIndex]?.name || '';
+      setStatus(`已将「${srcName}」的爆率复制到 ${count} 个怪物`);
+      addLog(`复制爆率: ${srcName} → ${count}个怪物`);
+      // 刷新当前地图怪物列表
+      if (mapViewData.selectedMap) await loadMapViewMonsters(mapViewData.selectedMap);
+    } catch(e) { setStatus('粘贴失败: ' + e); }
+    finally { hideLoading(); }
+  };
+  // 全选/全不选
+  $('ctxSelectAll').onclick = () => {
+    hideCtxMenu();
+    document.querySelectorAll('#mapViewMonBody .mon-cb').forEach(cb => cb.checked = true);
+  };
+  $('ctxDeselectAll').onclick = () => {
+    hideCtxMenu();
+    document.querySelectorAll('#mapViewMonBody .mon-cb').forEach(cb => cb.checked = false);
+  };
 }
 
 async function loadMapViewEntries(monsterIndex) {
