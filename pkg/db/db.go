@@ -41,9 +41,9 @@ type Reader interface {
 func NewReader(cfg DBConfig) (Reader, error) {
 	switch cfg.Type {
 	case DBTypeBDE:
-		return newODBCReader(cfg, "Paradox")
+		return nil, &DBError{Msg: "BDE 数据库需要安装 ODBC 驱动，请使用 SQLite/MySQL/SQL Server/Excel 类型，或联系开发者获取支持 BDE 的版本"}
 	case DBTypeAccess:
-		return newODBCReader(cfg, "Microsoft Access Driver (*.mdb)")
+		return nil, &DBError{Msg: "Access 数据库需要安装 ODBC 驱动，请使用 SQLite/MySQL/SQL Server/Excel 类型，或联系开发者获取支持 Access 的版本"}
 	case DBTypeSQLite:
 		return newSQLiteReader(cfg)
 	case DBTypeMySQL:
