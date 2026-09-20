@@ -234,7 +234,15 @@ async function loadEntries(idx) {
   try {
     // 检查当前编辑器是否有未保存的修改
     if (editorDirty && currentMonsterIdx >= 0) {
-      await saveEditorContent(currentMonsterIdx);
+      const curName = monsters[currentMonsterIdx]?.name || '';
+      const proceed = await showConfirmDialog(
+        '未保存的修改',
+        `怪物「${curName}」有未保存的修改，是否保存？`
+      );
+      if (proceed) {
+        await saveEditorContent(currentMonsterIdx);
+      }
+      // 如果用户取消，也继续加载（放弃修改）
     }
     const rawContent = await window.go.app.App.GetRawContent(idx);
     renderTextEditor(rawContent, idx);
@@ -946,13 +954,25 @@ function initItemCtxMenu() {
   const addItem = $('itemCtxAddRate');
   addItem.onmouseenter = () => $('itemCtxSubMenu').classList.add('show');
 
-  // 旧爆率格式
+  // 旧爆率格式和新爆率格式的处理在 initItemCtxMenu 末尾定义
   $('itemCtxOldFormat').onclick = async () => {
     hideItemCtxMenu();
     if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
     const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
     const items = Array.from(itemPanelSelectedItems);
     if (items.length === 0) return setStatus('请先选择物品');
+    // 检查是否已有配置
+    try {
+      const configured = await window.go.app.App.CheckItemConfigured(itemPanelMonsterIdx);
+      const existing = items.filter(name => configured[name] === true);
+      if (existing.length > 0) {
+        const proceed = await showConfirmDialog(
+          '物品已存在',
+          `以下物品已在该怪物中配置过：\n${existing.join('、')}\n\n是否仍要添加？`
+        );
+        if (!proceed) return;
+      }
+    } catch(e) {}
     let added = 0;
     for (const itemName of items) {
       try {
@@ -965,30 +985,6 @@ function initItemCtxMenu() {
     const monName = monsters[itemPanelMonsterIdx]?.name || '';
     setStatus(`已添加 ${added} 个物品（旧格式 1/${defaultDen}）→ ${monName}`);
     addLog(`旧格式添加 ${added} 个物品 1/${defaultDen} → ${monName}`);
-  };
-
-  // 新爆率格式
-  $('itemCtxNewFormat').onclick = async () => {
-    hideItemCtxMenu();
-    if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
-    const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
-    const items = Array.from(itemPanelSelectedItems);
-    if (items.length === 0) return setStatus('请先选择物品');
-    // 新格式: #CHILD 1/100 RANDOM + (1/1 物品名)
-    try {
-      // 先添加 #CHILD 行
-      await window.go.app.App.AddEntry(itemPanelMonsterIdx, '', 0, 0, 0); // 占位，下面用原始行
-      // 通过后端 API 直接添加新格式文本
-      const childLine = `#CHILD 1/${defaultDen} RANDOM`;
-      const childBody = items.map(name => `1/1 ${name}`).join('\n');
-      const fullText = childLine + '\n(\n' + childBody + '\n)';
-      await window.go.app.App.AddRawEntry(itemPanelMonsterIdx, fullText);
-      loadEntries(itemPanelMonsterIdx);
-      renderItemPanel(itemPanelMonsterIdx);
-      const monName = monsters[itemPanelMonsterIdx]?.name || '';
-      setStatus(`已添加 ${items.length} 个物品（新格式 #CHILD 1/${defaultDen} RANDOM）→ ${monName}`);
-      addLog(`新格式添加 ${items.length} 个物品 #CHILD 1/${defaultDen} RANDOM → ${monName}`);
-    } catch(e) { setStatus('添加失败: ' + e); }
   };
 }
 
@@ -1149,73 +1145,84 @@ function initCtxMenu() {
   };
 }
 
+// 地图视图文本编辑器状态
+let mapViewEditorDirty = false;
+let mapViewEditorMonsterIdx = -1;
+
 async function loadMapViewEntries(monsterIndex) {
   try {
-    const entries = await window.go.app.App.GetEntries(monsterIndex);
-    renderMapViewEntries(entries, monsterIndex);
+    // 检查当前编辑器是否有未保存的修改
+    if (mapViewEditorDirty && mapViewEditorMonsterIdx >= 0) {
+      const curName = monsters[mapViewEditorMonsterIdx]?.name || '';
+      const proceed = await showConfirmDialog(
+        '未保存的修改',
+        `怪物「${curName}」有未保存的修改，是否保存？`
+      );
+      if (proceed) {
+        await saveMapViewEditorContent(mapViewEditorMonsterIdx);
+      }
+    }
+    const rawContent = await window.go.app.App.GetRawContent(monsterIndex);
+    renderMapViewTextEditor(rawContent, monsterIndex);
   } catch(e) {
     setStatus('加载掉落条目失败: ' + e);
   }
 }
 
-function renderMapViewEntries(entries, monsterIndex) {
+function renderMapViewTextEditor(content, monsterIndex) {
   const body = $('mapViewEntryBody');
-  if (!entries) { body.innerHTML = ''; return; }
-  let count = 0;
-  let html = '';
-  entries.forEach((e, i) => {
-    if (e.isComment && !e.isEditable) return; // 跳过纯注释行
-    const indent = '  '.repeat(e.depth);
-    let icon = '🎯', cls = '', text = '';
-    if (e.isComment) { icon = '📝'; cls = 'ecomm'; text = e.rawLine; }
-    else if (e.isCallRef) { icon = '📎'; cls = 'ecall'; text = `#CALL [${e.callPath}]` + (e.callLabel ? ' ' + e.callLabel : ''); }
-    else if (e.isChildStart) { icon = '📦'; cls = 'echild'; text = `#CHILD ${e.childProb}` + (e.childRandom ? ' RANDOM' : ''); }
-    else if (e.isChildEnd) { icon = '📦'; cls = 'echild'; text = ')'; }
-    else if (e.isCaseStart) { icon = '🔀'; cls = 'echild'; text = `#CASE ${e.caseExpr}`; }
-    else if (e.isIfStart) { icon = '🔀'; cls = 'echild'; text = `#IF ${e.caseExpr}`; }
-    else if (e.isEditable) {
-      const trig = e.hasTrigger ? ` |${e.triggerName}` : '';
-      text = `<span class="prob">${e.probStr}</span> <span class="iname">${e.itemName}</span><span class="trig">${trig}</span> <span class="qty">x${e.quantity}</span>`;
-      html += `<div class="entry" data-eidx="${e.index}"><span class="icon">${icon}</span><span>${indent}${text}</span></div>`;
-      count++;
-      return;
+  const monName = monsters[monsterIndex]?.name || '';
+  mapViewEditorMonsterIdx = monsterIndex;
+  mapViewEditorDirty = false;
+  body.innerHTML = `
+    <div class="editor-toolbar">
+      <span class="editor-mon-name">📝 ${monName}</span>
+      <div class="editor-actions">
+        <span class="editor-status" id="mapEditorStatus"></span>
+        <button class="btn btn-sm btn-gold" id="btnMapEditorSave" title="保存文件">💾 保存</button>
+      </div>
+    </div>
+    <textarea class="text-editor" id="mapTextEditor" spellcheck="false"></textarea>
+  `;
+  const textarea = $('mapTextEditor');
+  textarea.value = content;
+
+  textarea.oninput = () => {
+    mapViewEditorDirty = true;
+    $('mapEditorStatus').textContent = '● 未保存';
+    $('mapEditorStatus').className = 'editor-status dirty';
+  };
+
+  $('btnMapEditorSave').onclick = async () => {
+    await saveMapViewEditorContent(monsterIndex);
+  };
+
+  textarea.onkeydown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveMapViewEditorContent(monsterIndex);
     }
-    else { text = e.rawLine; }
-    html += `<div class="entry"><span class="icon ${cls}">${icon}</span><span class="${cls}">${indent}${text}</span></div>`;
-  });
-  body.innerHTML = html;
-  $('mapViewItemCount').textContent = `(${count}条可编辑)`;
-  // 点击可编辑条目 → 弹出编辑对话框（复用已有 showEditDialog）
-  body.querySelectorAll('.entry[data-eidx]').forEach(el => {
-    el.onclick = () => {
-      const entryIdx = parseInt(el.dataset.eidx);
-      const entry = entries.find(e => e.index === entryIdx);
-      if (entry && entry.isEditable) {
-        showMapViewEditDialog(monsterIndex, entryIdx, entry);
-      }
-    };
-  });
+  };
+
+  $('mapViewItemCount').textContent = '';
+  textarea.focus();
 }
 
-function showMapViewEditDialog(monsterIndex, entryIndex, entry) {
-  showModal('修改掉落配置', `
-    <div class="form-row"><label>怪物:</label><span style="color:#5b9df0">${monsters.find((m,i) => i === monsterIndex)?.name || ''}</span></div>
-    <div class="form-row"><label>物品名称:</label><span style="color:#5b9df0">${entry.itemName}</span></div>
-    <div class="form-row"><label>概率分子:</label><input type="text" id="mNum" value="${entry.probNum}" /></div>
-    <div class="form-row"><label>概率分母:</label><input type="text" id="mDen" value="${entry.probDen}" /></div>
-    <div class="form-row"><label>掉落数量:</label><input type="text" id="mQty" value="${entry.quantity}" /></div>
-  `, [
-    {text:'保存',cls:'btn-gold',action:async()=>{
-      const num=+$('mNum').value,den=+$('mDen').value,qty=+$('mQty').value;
-      if(den<=0||qty<=0) return setStatus('请输入有效正整数');
-      await window.go.app.App.ModifyEntry(monsterIndex,entryIndex,num,den,qty);
-      hideModal();
-      // 刷新条目列表
-      await loadMapViewEntries(monsterIndex);
-      addLog(`修改 ${entry.itemName}: ${num}/${den} x${qty}`);
-    }},
-    {text:'取消',cls:'',action:hideModal}
-  ]);
+async function saveMapViewEditorContent(monsterIndex) {
+  const textarea = $('mapTextEditor');
+  if (!textarea) return;
+  try {
+    await window.go.app.App.SaveRawContent(monsterIndex, textarea.value);
+    mapViewEditorDirty = false;
+    $('mapEditorStatus').textContent = '✓ 已保存';
+    $('mapEditorStatus').className = 'editor-status saved';
+    setStatus(`已保存: ${monsters[monsterIndex]?.name || ''}`);
+    addLog(`保存文件: ${monsters[monsterIndex]?.name || ''}`);
+  } catch(e) {
+    $('mapEditorStatus').textContent = '✕ 保存失败';
+    $('mapEditorStatus').className = 'editor-status error';
+    setStatus('保存失败: ' + e);
+  }
 }
 
 // 地图视图搜索过滤
@@ -1563,5 +1570,16 @@ function showModal(title, bodyHtml, buttons) {
   $('modalOverlay').classList.add('show');
 }
 function hideModal() { $('modalOverlay').classList.remove('show'); }
+
+// 确认对话框，返回 Promise<boolean>
+function showConfirmDialog(title, message) {
+  return new Promise(resolve => {
+    const bodyHtml = `<div style="white-space:pre-wrap;line-height:1.6;font-size:13px">${message}</div>`;
+    showModal(title, bodyHtml, [
+      {text:'确定', cls:'btn-gold', action:()=>{ hideModal(); resolve(true); }},
+      {text:'取消', cls:'', action:()=>{ hideModal(); resolve(false); }}
+    ]);
+  });
+}
 $('modalClose').onclick = hideModal;
 $('modalOverlay').onclick = e => { if (e.target === $('modalOverlay')) hideModal(); };
