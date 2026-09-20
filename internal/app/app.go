@@ -285,6 +285,16 @@ func (a *App) AddEntry(monsterIndex int, itemName string, num, den, qty int) err
 	return nil
 }
 
+// AddRawEntry 新增原始文本条目（用于添加 #CHILD 等结构化内容）
+func (a *App) AddRawEntry(monsterIndex int, rawText string) error {
+	if a.currentResults == nil || monsterIndex < 0 || monsterIndex >= len(a.currentResults) {
+		return fmt.Errorf("无效的怪物索引")
+	}
+	file := a.currentResults[monsterIndex].File
+	a.editor.AddRawText(file, rawText)
+	return nil
+}
+
 // BatchMultiply 批量倍率调整
 func (a *App) BatchMultiply(monsterIndex int, multiplier float64) (int, error) {
 	if a.currentResults == nil || monsterIndex < 0 || monsterIndex >= len(a.currentResults) {

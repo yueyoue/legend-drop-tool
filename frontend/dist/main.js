@@ -157,18 +157,18 @@ function initSetupPage() {
 
 function initMainApp() {
   initTabs();
-  initToolbar();
   initEditTab();
   initMapViewSearch();
   initItemPanelSearch();
   initCtxMenu();
+  initItemCtxMenu();
   initSimTab();
   initTuneTab();
   initAuthTab();
   renderMonsterList();
   refreshTuneItemList();
   loadItemPanel();
-  $('editTopnav').style.display = '';
+  $('subNav').classList.remove('hidden');
   setStatus(`已加载 ${monsters.length} 个怪物文件`);
 }
 
@@ -177,77 +177,33 @@ async function loadConfig() {
   try {
     const cfg = await window.go.app.App.GetConfig();
     if (cfg && cfg.server_root) {
-      $('serverPath').value = cfg.server_root;
+      // 服务端路径现在在启动设置页设置
     }
   } catch(e) { console.log('loadConfig:', e); }
 }
 
 // ===== Tab 切换 =====
 function initTabs() {
-  $$('.tab').forEach(tab => {
+  $$('.top-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      $$('.tab').forEach(t => t.classList.remove('active'));
+      $$('.top-tab').forEach(t => t.classList.remove('active'));
       $$('.tab-pane').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       $('pane-' + tab.dataset.tab).classList.add('active');
       const isEdit = tab.dataset.tab === 'edit';
       $('sidebar').style.display = isEdit ? 'flex' : 'none';
-      $('editTopnav').style.display = isEdit ? '' : 'none';
+      $('subNav').style.display = isEdit ? '' : 'none';
+      // 地图视图时隐藏物品面板
+      if (!isEdit || mapViewMode) {
+        if ($('itemPanel')) $('itemPanel').style.display = 'none';
+      } else if (isEdit && !mapViewMode && dbItems.length > 0) {
+        if ($('itemPanel')) $('itemPanel').style.display = '';
+      }
     });
   });
 }
 
-// ===== 工具栏 =====
-function initToolbar() {
-  // 浏览按钮 - 通过 Go 后端打开系统目录选择对话框
-  $('btnBrowse').onclick = async () => {
-    try {
-      const result = await window.go.app.App.SelectDirectory();
-      if (result) {
-        $('serverPath').value = result;
-        await window.go.app.App.SetServerPath(result);
-        setStatus('已选择目录: ' + result);
-      }
-    } catch(e) {
-      console.error('Browse error:', e);
-      setStatus('浏览失败: ' + e);
-    }
-  };
-
-  // 引擎切换
-  $('engineSelect').onchange = () => {
-    window.go.app.App.SetEngine($('engineSelect').value);
-  };
-
-  $('btnDetect').onclick = async () => {
-    const path = $('serverPath').value;
-    if (!path) return setStatus('请先输入服务端目录');
-    const engine = await window.go.app.App.DetectEngine(path);
-    $('engineSelect').value = engine;
-    setStatus('检测到引擎: ' + engine);
-  };
-
-  $('btnLoad').onclick = async () => {
-    const path = $('serverPath').value;
-    if (!path) return setStatus('请选择服务端目录');
-    try {
-      showLoading('正在加载爆率文件，请稍候...');
-      const result = await window.go.app.App.LoadFiles(path);
-      monsters = result.monsters;
-      renderMonsterList();
-      refreshTuneItemList();
-      setStatus(`已加载 ${result.totalFiles} 个怪物文件，共 ${result.totalEntries} 条掉落配置 | 引擎: ${result.engine}`);
-      if (result.warnings && result.warnings.length > 0) {
-        showModal('解析提示', `<div style="max-height:400px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre">${result.warnings.join('\n')}</div>`, [{text:'确定',cls:'btn-gold',action:hideModal}]);
-      }
-    } catch(e) { setStatus('错误: ' + e); }
-    finally { hideLoading(); }
-  };
-
-  $('engineSelect').onchange = () => {
-    window.go.app.App.SetEngine($('engineSelect').value);
-  };
-}
+// ===== 工具栏（已移除，服务端目录和引擎在启动设置页选择） =====
 
 // ===== 怪物列表 =====
 function renderMonsterList() {
@@ -279,30 +235,74 @@ async function loadEntries(idx) {
 
 function renderEntries(entries) {
   const list = $('entryList');
-  list.innerHTML = '';
-  if (!entries) return;
+  if (!entries) { list.innerHTML = ''; return; }
+  let html = `<table class="entry-table">
+    <colgroup><col style="width:28px"><col style="width:100px"><col><col style="width:60px"><col style="width:140px"><col style="width:60px"></colgroup>
+    <thead><tr><th></th><th>概率</th><th>物品名称</th><th>数量</th><th>触发器</th><th>操作</th></tr></thead><tbody>`;
   entries.forEach((e, i) => {
-    const div = document.createElement('div');
-    div.className = 'entry';
     const indent = '  '.repeat(e.depth);
-    let icon = '🎯', cls = '', text = '';
-    if (e.isComment) { icon = '📝'; cls = 'ecomm'; text = e.rawLine; }
-    else if (e.isCallRef) { icon = '📎'; cls = 'ecall'; text = `#CALL [${e.callPath}]` + (e.callLabel ? ' ' + e.callLabel : ''); }
-    else if (e.isChildStart) { icon = '📦'; cls = 'echild'; text = `#CHILD ${e.childProb}` + (e.childRandom ? ' RANDOM' : ''); }
-    else if (e.isChildEnd) { icon = '📦'; cls = 'echild'; text = ')'; }
-    else if (e.isCaseStart) { icon = '🔀'; cls = 'echild'; text = `#CASE ${e.caseExpr}`; }
-    else if (e.isIfStart) { icon = '🔀'; cls = 'echild'; text = `#IF ${e.caseExpr}`; }
-    else if (e.isEditable) {
-      const trig = e.hasTrigger ? ` |${e.triggerName}` : '';
-      text = `<span class="prob">${e.probStr}</span> <span class="iname">${e.itemName}</span><span class="trig">${trig}</span> <span class="qty">x${e.quantity}</span>`;
-      div.innerHTML = `<span class="icon">${icon}</span><span>${indent}${text}</span>`;
-      div.onclick = () => showEditDialog(i, e);
-      list.appendChild(div);
-      return;
+    let icon = '🎯', cls = '';
+    if (e.isComment) { icon = '📝'; cls = 'ecomm'; }
+    else if (e.isCallRef) { icon = '📎'; cls = 'ecall'; }
+    else if (e.isChildStart || e.isChildEnd) { icon = '📦'; cls = 'echild'; }
+    else if (e.isCaseStart || e.isIfStart) { icon = '🔀'; cls = 'echild'; }
+
+    if (e.isEditable) {
+      const trigVal = e.hasTrigger ? e.triggerName : '';
+      html += `<tr class="entry-row" data-idx="${i}">
+        <td class="col-icon"><span class="icon">${icon}</span></td>
+        <td class="col-prob"><input class="edit-input" data-field="prob" data-idx="${i}" value="${e.probNum}/${e.probDen}" /></td>
+        <td class="col-item"><span class="iname">${indent}${e.itemName}</span></td>
+        <td class="col-qty"><input class="edit-input" data-field="qty" data-idx="${i}" value="${e.quantity}" style="width:50px;text-align:right" /></td>
+        <td class="col-trigger"><span class="trig">${trigVal}</span></td>
+        <td class="col-action"><button class="btn-save-entry" data-idx="${i}" title="保存修改">💾</button></td>
+      </tr>`;
+    } else {
+      let text = '';
+      if (e.isComment) text = e.rawLine;
+      else if (e.isCallRef) text = `#CALL [${e.callPath}]` + (e.callLabel ? ' ' + e.callLabel : '');
+      else if (e.isChildStart) text = `#CHILD ${e.childProb}` + (e.childRandom ? ' RANDOM' : '');
+      else if (e.isChildEnd) text = ')';
+      else if (e.isCaseStart) text = `#CASE ${e.caseExpr}`;
+      else if (e.isIfStart) text = `#IF ${e.caseExpr}`;
+      else text = e.rawLine;
+      html += `<tr class="entry-row">
+        <td class="col-icon"><span class="icon ${cls}">${icon}</span></td>
+        <td colspan="4" class="${cls}">${indent}${text}</td>
+        <td></td>
+      </tr>`;
     }
-    else { text = e.rawLine; }
-    div.innerHTML = `<span class="icon ${cls}">${icon}</span><span class="${cls}">${indent}${text}</span>`;
-    list.appendChild(div);
+  });
+  html += '</tbody></table>';
+  list.innerHTML = html;
+
+  // 绑定编辑事件
+  list.querySelectorAll('.edit-input').forEach(input => {
+    input.onfocus = () => input.closest('tr').classList.add('editing');
+    input.onblur = () => input.closest('tr').classList.remove('editing');
+    input.oninput = () => input.classList.add('changed');
+  });
+  list.querySelectorAll('.btn-save-entry').forEach(btn => {
+    btn.onclick = async () => {
+      const idx = parseInt(btn.dataset.idx);
+      const entry = entries[idx];
+      if (!entry || !entry.isEditable) return;
+      const row = btn.closest('tr');
+      const probInput = row.querySelector('input[data-field="prob"]');
+      const qtyInput = row.querySelector('input[data-field="qty"]');
+      const parts = probInput.value.split('/');
+      const num = parseInt(parts[0]) || 1;
+      const den = parseInt(parts[1]) || 100;
+      const qty = parseInt(qtyInput.value) || 1;
+      if (den <= 0 || qty <= 0) return setStatus('请输入有效正整数');
+      try {
+        await window.go.app.App.ModifyEntry(currentMonsterIdx, idx, num, den, qty);
+        probInput.classList.remove('changed');
+        qtyInput.classList.remove('changed');
+        setStatus(`已保存: ${entry.itemName} ${num}/${den} x${qty}`);
+        addLog(`修改 ${entry.itemName}: ${num}/${den} x${qty}`);
+      } catch(e) { setStatus('保存失败: ' + e); }
+    };
   });
 }
 
@@ -418,6 +418,7 @@ function initEditTab() {
   };
 }
 
+// showEditDialog 已替换为内联编辑，保留此函数供地图视图使用
 function showEditDialog(idx, entry) {
   showModal('修改掉落配置', `
     <div class="form-row"><label>物品名称:</label><span style="color:#5b9df0">${entry.itemName}</span></div>
@@ -580,7 +581,7 @@ function renderCol(bodyId, headers, rows, type, simData, dataNames) {
         if (idx >= 0) {
           $$('.tab').forEach(t => t.classList.remove('active'));
           $$('.tab-pane').forEach(p => p.classList.remove('active'));
-          document.querySelector('.tab[data-tab="edit"]').classList.add('active');
+          document.querySelector('.top-tab[data-tab="edit"]').classList.add('active');
           $('pane-edit').classList.add('active');
           $('sidebar').style.display = 'flex';
           await selectMonster(idx);
@@ -786,6 +787,9 @@ async function loadItemPanel() {
   }
 }
 
+// 物品面板右键选中状态
+let itemPanelSelectedItems = new Set();
+
 async function renderItemPanel(monsterIdx) {
   itemPanelMonsterIdx = monsterIdx;
   const body = $('itemPanelBody');
@@ -806,19 +810,61 @@ async function renderItemPanel(monsterIdx) {
     const isConfigured = configured[item.Name] === true;
     const cls = isConfigured ? 'configured' : 'unconfigured';
     const check = isConfigured ? '✓' : '';
-    html += `<div class="ip-item ${cls}" data-name="${item.Name}"><span class="ip-check">${check}</span><span class="ip-name" title="${item.Name}">${item.Name}</span></div>`;
+    const selected = itemPanelSelectedItems.has(item.Name) ? ' selected' : '';
+    html += `<div class="ip-item ${cls}${selected}" data-name="${item.Name}"><span class="ip-check">${check}</span><span class="ip-name" title="${item.Name}">${item.Name}</span></div>`;
     count++;
   });
   body.innerHTML = html;
   $('itemPanelCount').textContent = `(${count})`;
 
-  // 点击物品 → 快速添加爆率
+  // 绑定事件
   body.querySelectorAll('.ip-item').forEach(el => {
-    el.onclick = async () => {
-      const itemName = el.dataset.name;
+    const itemName = el.dataset.name;
+
+    // 单击：选中/取消选中（支持 Ctrl 多选）
+    el.onclick = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl+点击：多选
+        if (itemPanelSelectedItems.has(itemName)) {
+          itemPanelSelectedItems.delete(itemName);
+          el.classList.remove('selected');
+        } else {
+          itemPanelSelectedItems.add(itemName);
+          el.classList.add('selected');
+        }
+      } else {
+        // 普通点击：单选
+        itemPanelSelectedItems.clear();
+        body.querySelectorAll('.ip-item').forEach(i => i.classList.remove('selected'));
+        itemPanelSelectedItems.add(itemName);
+        el.classList.add('selected');
+      }
+    };
+
+    // 双击：直接按默认爆率添加
+    el.ondblclick = async () => {
       if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
-      const monName = monsters[itemPanelMonsterIdx]?.name || '';
-      showQuickAddDialog(itemPanelMonsterIdx, itemName, monName);
+      const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
+      try {
+        await window.go.app.App.QuickAddItem(itemPanelMonsterIdx, itemName, 1, defaultDen, 1);
+        loadEntries(itemPanelMonsterIdx);
+        renderItemPanel(itemPanelMonsterIdx);
+        setStatus(`已添加: ${itemName} 1/${defaultDen} → ${monsters[itemPanelMonsterIdx]?.name || ''}`);
+        addLog(`快速添加: ${itemName} 1/${defaultDen} → ${monsters[itemPanelMonsterIdx]?.name || ''}`);
+      } catch(e) { setStatus('添加失败: ' + e); }
+    };
+
+    // 右键：弹出物品上下文菜单
+    el.oncontextmenu = (e) => {
+      e.preventDefault();
+      // 如果右键的物品不在选中集合中，则选中它
+      if (!itemPanelSelectedItems.has(itemName)) {
+        itemPanelSelectedItems.clear();
+        body.querySelectorAll('.ip-item').forEach(i => i.classList.remove('selected'));
+        itemPanelSelectedItems.add(itemName);
+        el.classList.add('selected');
+      }
+      showItemCtxMenu(e.pageX, e.pageY);
     };
   });
 }
@@ -847,6 +893,74 @@ function showQuickAddDialog(monsterIdx, itemName, monsterName) {
 // 物品面板搜索
 function initItemPanelSearch() {
   $('itemPanelSearch').oninput = () => renderItemPanel(itemPanelMonsterIdx);
+}
+
+// ===== 物品面板右键菜单 =====
+function showItemCtxMenu(x, y) {
+  const menu = $('itemCtxMenu');
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('show');
+}
+function hideItemCtxMenu() {
+  $('itemCtxMenu').classList.remove('show');
+  $('itemCtxSubMenu').classList.remove('show');
+}
+
+function initItemCtxMenu() {
+  // 点击其他地方关闭物品右键菜单
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#itemCtxMenu')) hideItemCtxMenu();
+  });
+
+  // 鼠标进入“增加选中爆率”时显示子菜单
+  const addItem = $('itemCtxAddRate');
+  addItem.onmouseenter = () => $('itemCtxSubMenu').classList.add('show');
+
+  // 旧爆率格式
+  $('itemCtxOldFormat').onclick = async () => {
+    hideItemCtxMenu();
+    if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
+    const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
+    const items = Array.from(itemPanelSelectedItems);
+    if (items.length === 0) return setStatus('请先选择物品');
+    let added = 0;
+    for (const itemName of items) {
+      try {
+        await window.go.app.App.QuickAddItem(itemPanelMonsterIdx, itemName, 1, defaultDen, 1);
+        added++;
+      } catch(e) { /* skip */ }
+    }
+    loadEntries(itemPanelMonsterIdx);
+    renderItemPanel(itemPanelMonsterIdx);
+    const monName = monsters[itemPanelMonsterIdx]?.name || '';
+    setStatus(`已添加 ${added} 个物品（旧格式 1/${defaultDen}）→ ${monName}`);
+    addLog(`旧格式添加 ${added} 个物品 1/${defaultDen} → ${monName}`);
+  };
+
+  // 新爆率格式
+  $('itemCtxNewFormat').onclick = async () => {
+    hideItemCtxMenu();
+    if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
+    const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
+    const items = Array.from(itemPanelSelectedItems);
+    if (items.length === 0) return setStatus('请先选择物品');
+    // 新格式: #CHILD 1/100 RANDOM + (1/1 物品名)
+    try {
+      // 先添加 #CHILD 行
+      await window.go.app.App.AddEntry(itemPanelMonsterIdx, '', 0, 0, 0); // 占位，下面用原始行
+      // 通过后端 API 直接添加新格式文本
+      const childLine = `#CHILD 1/${defaultDen} RANDOM`;
+      const childBody = items.map(name => `1/1 ${name}`).join('\n');
+      const fullText = childLine + '\n(\n' + childBody + '\n)';
+      await window.go.app.App.AddRawEntry(itemPanelMonsterIdx, fullText);
+      loadEntries(itemPanelMonsterIdx);
+      renderItemPanel(itemPanelMonsterIdx);
+      const monName = monsters[itemPanelMonsterIdx]?.name || '';
+      setStatus(`已添加 ${items.length} 个物品（新格式 #CHILD 1/${defaultDen} RANDOM）→ ${monName}`);
+      addLog(`新格式添加 ${items.length} 个物品 #CHILD 1/${defaultDen} RANDOM → ${monName}`);
+    } catch(e) { setStatus('添加失败: ' + e); }
+  };
 }
 
 // ===== 地图视图（按地图查看怪物和爆率） =====

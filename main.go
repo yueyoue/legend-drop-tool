@@ -16,9 +16,11 @@ func main() {
 	application := app.NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "传奇爆率模拟与修改工具 v2.0.0",
-		Width:  1280,
-		Height: 860,
+		Title:    "传奇爆率模拟与修改工具 v3.0.0",
+		Width:    1280,
+		Height:   860,
+		MinWidth: 960,
+		MinHeight: 600,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

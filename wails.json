@@ -2,6 +2,11 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "legend-drop-tool",
   "outputfilename": "legend-drop-tool",
+  "info": {
+    "companyName": "yueyoue",
+    "productName": "传奇爆率模拟与修改工具",
+    "productVersion": "3.1.0"
+  },
   "frontend:dir": "frontend/dist",
   "author": {
     "name": "yueyoue",

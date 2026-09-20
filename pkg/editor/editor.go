@@ -123,6 +123,28 @@ func (e *Editor) AddEntry(file *parser.MonsterDropFile, itemName string, numerat
 	})
 }
 
+// AddRawText 新增原始文本内容（支持多行，用于添加 #CHILD 等结构化内容）
+func (e *Editor) AddRawText(file *parser.MonsterDropFile, rawText string) {
+	lines := strings.Split(rawText, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		entry := &parser.DropEntry{
+			LineNumber: len(file.Entries) + 1,
+			RawLine:    line,
+		}
+		file.Entries = append(file.Entries, entry)
+	}
+	e.records = append(e.records, EditRecord{
+		Timestamp: time.Now(),
+		Action:    ActionAdd,
+		FilePath:  file.FilePath,
+		NewValue:  rawText,
+	})
+}
+
 // BatchMultiply 批量倍率调整 (仅对可编辑条目)
 func (e *Editor) BatchMultiply(file *parser.MonsterDropFile, multiplier float64) int {
 	count := 0
