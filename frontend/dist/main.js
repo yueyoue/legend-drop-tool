@@ -232,8 +232,8 @@ let editorDebounceTimer = null;
 
 async function loadEntries(idx) {
   try {
-    // 检查当前编辑器是否有未保存的修改
-    if (editorDirty && currentMonsterIdx >= 0) {
+    // 只在切换到不同怪物时才检查未保存的修改
+    if (editorDirty && currentMonsterIdx >= 0 && currentMonsterIdx !== idx) {
       const curName = monsters[currentMonsterIdx]?.name || '';
       const proceed = await showConfirmDialog(
         '未保存的修改',
@@ -242,12 +242,15 @@ async function loadEntries(idx) {
       if (proceed) {
         await saveEditorContent(currentMonsterIdx);
       }
-      // 如果用户取消，也继续加载（放弃修改）
     }
     const rawContent = await window.go.app.App.GetRawContent(idx);
     renderTextEditor(rawContent, idx);
   } catch(e) { setStatus('错误: ' + e); }
 }
+
+// ============================================================
+// 编辑器 - 带行号、#CHILD折叠(+/-)、方括号列
+// ============================================================
 
 function renderTextEditor(content, monsterIdx) {
   const list = $('entryList');
@@ -258,12 +261,15 @@ function renderTextEditor(content, monsterIdx) {
       <div class="editor-actions">
         <span class="editor-status" id="editorStatus"></span>
         <button class="btn btn-sm" id="btnEditorUndo" title="撤销">↩️</button>
-        <button class="btn btn-sm" id="btnToggleFold" title="折叠/展开 #CHILD 块">📁 折叠</button>
+        <button class="btn btn-sm" id="btnFoldAll" title="折叠全部 #CHILD">📁 全部折叠</button>
+        <button class="btn btn-sm" id="btnUnfoldAll" title="展开全部">📂 全部展开</button>
         <button class="btn btn-sm btn-gold" id="btnEditorSave" title="保存文件 (Ctrl+S)">💾 保存</button>
       </div>
     </div>
     <div class="editor-wrap">
       <div class="editor-lines" id="editorLines"></div>
+      <div class="fold-gutter" id="foldGutter"></div>
+      <div class="bracket-col" id="bracketCol"></div>
       <textarea class="text-editor" id="textEditor" spellcheck="false"></textarea>
     </div>
   `;
@@ -271,14 +277,12 @@ function renderTextEditor(content, monsterIdx) {
   textarea.value = content;
   editorDirty = false;
 
-  // 初始化行号和折叠
-  updateEditorLineNumbers();
-  buildFoldMap();
+  // 初始化
+  rebuildEditorUI();
 
-  // 滚动同步行号
+  // 滚动同步
   textarea.onscroll = () => {
-    const lines = $('editorLines');
-    if (lines) lines.scrollTop = textarea.scrollTop;
+    syncEditorScroll();
   };
 
   // 输入事件
@@ -286,12 +290,11 @@ function renderTextEditor(content, monsterIdx) {
     editorDirty = true;
     $('editorStatus').textContent = '● 未保存';
     $('editorStatus').className = 'editor-status dirty';
-    updateEditorLineNumbers();
-    clearTimeout(editorDebounceTimer);
-    editorDebounceTimer = setTimeout(() => {}, 1000);
+    // 重新检测折叠块（内容变了可能结构也变了）
+    rebuildEditorUI();
   };
 
-  // 保存按钮
+  // 保存
   $('btnEditorSave').onclick = async () => {
     await saveEditorContent(monsterIdx);
   };
@@ -302,20 +305,17 @@ function renderTextEditor(content, monsterIdx) {
     textarea.focus();
   };
 
-  // 折叠/展开
-  let foldEnabled = false;
-  $('btnToggleFold').onclick = () => {
-    foldEnabled = !foldEnabled;
-    if (foldEnabled) {
-      applyFolds();
-      $('btnToggleFold').textContent = '📂 展开';
-    } else {
-      removeFolds();
-      $('btnToggleFold').textContent = '📁 折叠';
-    }
+  // 全部折叠
+  $('btnFoldAll').onclick = () => {
+    foldAllBlocks(true);
   };
 
-  // Ctrl+S 保存
+  // 全部展开
+  $('btnUnfoldAll').onclick = () => {
+    unfoldAllBlocks();
+  };
+
+  // Ctrl+S
   textarea.onkeydown = (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
@@ -326,68 +326,197 @@ function renderTextEditor(content, monsterIdx) {
   textarea.focus();
 }
 
-// 编辑器行号更新
-function updateEditorLineNumbers() {
-  const textarea = $('textEditor');
-  const linesEl = $('editorLines');
-  if (!textarea || !linesEl) return;
-  const lineCount = textarea.value.split('\n').length;
-  let html = '';
-  for (let i = 1; i <= lineCount; i++) {
-    html += i + '\n';
-  }
-  linesEl.textContent = html;
-}
+// ---- 编辑器状态 ----
+let editorFoldState = { originalContent: '', blocks: [] };
+// blocks: [{startLine, endLine, collapsed}]
 
-// #CHILD 折叠功能
-let foldRanges = []; // [{startLine, endLine, collapsed}]
-let originalContent = '';
-
-function buildFoldMap() {
+function rebuildEditorUI() {
   const textarea = $('textEditor');
   if (!textarea) return;
   const lines = textarea.value.split('\n');
-  foldRanges = [];
+  detectFoldBlocks(lines);
+  renderLineNumbers(lines.length);
+  renderFoldGutter(lines.length);
+  renderBracketCol(lines.length);
+  syncEditorScroll();
+}
+
+function detectFoldBlocks(lines) {
+  const blocks = [];
   const stack = [];
   for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (/^#CHILD\b/i.test(trimmed) || /^#CASE\b/i.test(trimmed) || /^#IF\b/i.test(trimmed)) {
+    const t = lines[i].trim();
+    if (/^#CHILD\b/i.test(t) || /^#CASE\b/i.test(t) || /^#IF\b/i.test(t)) {
       stack.push(i);
-    } else if (trimmed === ')' && stack.length > 0) {
-      const startLine = stack.pop();
-      foldRanges.push({ startLine, endLine: i, collapsed: false });
+    } else if (t === ')' && stack.length > 0) {
+      const s = stack.pop();
+      blocks.push({ startLine: s, endLine: i, collapsed: false });
     }
   }
+  // 保留之前的折叠状态
+  const oldBlocks = editorFoldState.blocks;
+  for (const nb of blocks) {
+    const ob = oldBlocks.find(o => o.startLine === nb.startLine && o.endLine === nb.endLine);
+    if (ob && ob.collapsed) nb.collapsed = true;
+  }
+  editorFoldState.blocks = blocks;
 }
 
-function applyFolds() {
+function renderLineNumbers(lineCount) {
+  const el = $('editorLines');
+  if (!el) return;
+  let html = '';
+  for (let i = 1; i <= lineCount; i++) html += i + '<br>';
+  el.innerHTML = html;
+}
+
+function renderFoldGutter(lineCount) {
+  const el = $('foldGutter');
+  if (!el) return;
+  const blocks = editorFoldState.blocks;
+  // 哪些行有折叠按钮
+  const blockMap = {};
+  blocks.forEach(b => { blockMap[b.startLine] = b; });
+  let html = '';
+  for (let i = 0; i < lineCount; i++) {
+    if (blockMap[i]) {
+      const cls = blockMap[i].collapsed ? 'collapsed' : 'expanded';
+      html += `<div class="fold-row"><span class="fold-btn ${cls}" data-line="${i}"></span></div>`;
+    } else {
+      html += '<div class="fold-row"></div>';
+    }
+  }
+  el.innerHTML = html;
+  // 绑定点击
+  el.querySelectorAll('.fold-btn').forEach(btn => {
+    btn.onclick = () => {
+      const line = parseInt(btn.dataset.line);
+      toggleFoldBlock(line);
+    };
+  });
+}
+
+function renderBracketCol(lineCount) {
+  const el = $('bracketCol');
+  if (!el) return;
+  const blocks = editorFoldState.blocks;
+  // 标记每行属于哪个块的哪个位置
+  const lineRole = {}; // lineNum -> 'start'|'mid'|'end'
+  blocks.forEach(b => {
+    if (b.collapsed) return; // 折叠的不画括号
+    if (b.endLine - b.startLine < 2) return; // 太短不画
+    lineRole[b.startLine] = 'start';
+    lineRole[b.endLine] = 'end';
+    for (let i = b.startLine + 1; i < b.endLine; i++) {
+      if (!lineRole[i]) lineRole[i] = 'mid';
+    }
+  });
+  let html = '';
+  for (let i = 0; i < lineCount; i++) {
+    const role = lineRole[i];
+    if (role === 'start') {
+      html += '<div class="bracket-line"><span class="bracket-char">[</span></div>';
+    } else if (role === 'end') {
+      html += '<div class="bracket-line"><span class="bracket-char">]</span></div>';
+    } else if (role === 'mid') {
+      html += '<div class="bracket-line"><span class="bracket-mid"></span></div>';
+    } else {
+      html += '<div class="bracket-line"></div>';
+    }
+  }
+  el.innerHTML = html;
+}
+
+function syncEditorScroll() {
   const textarea = $('textEditor');
   if (!textarea) return;
-  originalContent = textarea.value;
-  const lines = textarea.value.split('\n');
-  // 按 startLine 降序排列，从后往前折叠
-  const sorted = [...foldRanges].sort((a, b) => b.startLine - a.startLine);
-  for (const range of sorted) {
-    // 保留 #CHILD 行，折叠中间内容到最后一个 )
-    const before = lines.slice(0, range.startLine + 1);
-    const after = lines.slice(range.endLine + 1);
-    const foldedLine = lines[range.startLine] + ' ... (' + lines[range.endLine].trim() + ')';
-    lines.splice(range.startLine, range.endLine - range.startLine + 1, foldedLine);
-    range.collapsed = true;
-    range.foldedLineIdx = range.startLine;
-  }
-  textarea.value = lines.join('\n');
-  editorDirty = true;
-  updateEditorLineNumbers();
+  const top = textarea.scrollTop;
+  const left = textarea.scrollLeft;
+  ['editorLines', 'foldGutter', 'bracketCol'].forEach(id => {
+    const el = $(id);
+    if (el) el.scrollTop = top;
+  });
 }
 
-function removeFolds() {
+function toggleFoldBlock(line) {
+  const block = editorFoldState.blocks.find(b => b.startLine === line);
+  if (!block) return;
   const textarea = $('textEditor');
-  if (!textarea || !originalContent) return;
-  textarea.value = originalContent;
-  foldRanges.forEach(r => r.collapsed = false);
+  if (!textarea) return;
+
+  if (block.collapsed) {
+    // 展开：恢复原始内容
+    unfoldAllBlocks();
+  } else {
+    // 折叠这个块
+    foldBlock(block);
+  }
+}
+
+function foldBlock(block) {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  // 保存原始内容
+  if (!editorFoldState.originalContent) {
+    editorFoldState.originalContent = textarea.value;
+  }
+  const lines = textarea.value.split('\n');
+  // 构建折叠行：#CHILD 1/100 RANDOM [...] )
+  const headerLine = lines[block.startLine];
+  const closeLine = lines[block.endLine] || ')';
+  const innerCount = block.endLine - block.startLine - 1;
+  const foldedLine = headerLine + `  [... ${innerCount} 行折叠 ...]  ` + closeLine.trim();
+  const newLines = [
+    ...lines.slice(0, block.startLine),
+    foldedLine,
+    ...lines.slice(block.endLine + 1)
+  ];
+  textarea.value = newLines.join('\n');
+  block.collapsed = true;
+  block._startLine = block.startLine;
+  block._endLine = block.endLine;
   editorDirty = true;
-  updateEditorLineNumbers();
+  rebuildEditorUI();
+}
+
+function unfoldAllBlocks() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  if (editorFoldState.originalContent) {
+    textarea.value = editorFoldState.originalContent;
+    editorFoldState.originalContent = '';
+    editorDirty = true;
+  }
+  editorFoldState.blocks.forEach(b => b.collapsed = false);
+  rebuildEditorUI();
+}
+
+function foldAllBlocks() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  if (!editorFoldState.originalContent) {
+    editorFoldState.originalContent = textarea.value;
+  }
+  // 逐个折叠（从后往前）
+  const sorted = [...editorFoldState.blocks].sort((a, b) => b.startLine - a.startLine);
+  for (const block of sorted) {
+    if (!block.collapsed) {
+      const lines = textarea.value.split('\n');
+      const headerLine = lines[block.startLine];
+      const closeLine = lines[block.endLine] || ')';
+      const innerCount = block.endLine - block.startLine - 1;
+      const foldedLine = headerLine + `  [... ${innerCount} 行折叠 ...]  ` + closeLine.trim();
+      const newLines = [
+        ...lines.slice(0, block.startLine),
+        foldedLine,
+        ...lines.slice(block.endLine + 1)
+      ];
+      textarea.value = newLines.join('\n');
+      block.collapsed = true;
+    }
+  }
+  editorDirty = true;
+  rebuildEditorUI();
 }
 
 async function saveEditorContent(monsterIdx) {
@@ -1274,8 +1403,8 @@ let mapViewEditorMonsterIdx = -1;
 
 async function loadMapViewEntries(monsterIndex) {
   try {
-    // 检查当前编辑器是否有未保存的修改
-    if (mapViewEditorDirty && mapViewEditorMonsterIdx >= 0) {
+    // 只在切换到不同怪物时才检查未保存的修改
+    if (mapViewEditorDirty && mapViewEditorMonsterIdx >= 0 && mapViewEditorMonsterIdx !== monsterIndex) {
       const curName = monsters[mapViewEditorMonsterIdx]?.name || '';
       const proceed = await showConfirmDialog(
         '未保存的修改',
@@ -1302,74 +1431,159 @@ function renderMapViewTextEditor(content, monsterIndex) {
       <span class="editor-mon-name">📝 ${monName}</span>
       <div class="editor-actions">
         <span class="editor-status" id="mapEditorStatus"></span>
-        <button class="btn btn-sm" id="btnMapToggleFold" title="折叠/展开 #CHILD 块">📁 折叠</button>
+        <button class="btn btn-sm" id="btnMapFoldAll" title="折叠全部 #CHILD">📁 全部折叠</button>
+        <button class="btn btn-sm" id="btnMapUnfoldAll" title="展开全部">📂 全部展开</button>
         <button class="btn btn-sm btn-gold" id="btnMapEditorSave" title="保存文件 (Ctrl+S)">💾 保存</button>
       </div>
     </div>
     <div class="editor-wrap">
       <div class="editor-lines" id="mapEditorLines"></div>
+      <div class="fold-gutter" id="mapFoldGutter"></div>
+      <div class="bracket-col" id="mapBracketCol"></div>
       <textarea class="text-editor" id="mapTextEditor" spellcheck="false"></textarea>
     </div>
   `;
   const textarea = $('mapTextEditor');
   textarea.value = content;
 
-  // 行号
-  function updateMapLines() {
-    const el = $('mapEditorLines');
-    if (!el) return;
-    const cnt = textarea.value.split('\n').length;
-    let h = ''; for (let i = 1; i <= cnt; i++) h += i + '\n';
-    el.textContent = h;
+  // 独立的折叠状态
+  let mapFoldState = { originalContent: '', blocks: [] };
+
+  function rebuildMapUI() {
+    const lines = textarea.value.split('\n');
+    // 检测折叠块
+    const blocks = [];
+    const stack = [];
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (/^#CHILD\b/i.test(t) || /^#CASE\b/i.test(t) || /^#IF\b/i.test(t)) stack.push(i);
+      else if (t === ')' && stack.length > 0) {
+        const s = stack.pop();
+        blocks.push({ startLine: s, endLine: i, collapsed: false });
+      }
+    }
+    // 保留折叠状态
+    for (const nb of blocks) {
+      const ob = mapFoldState.blocks.find(o => o.startLine === nb.startLine && o.endLine === nb.endLine);
+      if (ob && ob.collapsed) nb.collapsed = true;
+    }
+    mapFoldState.blocks = blocks;
+
+    // 行号
+    let lineHtml = '';
+    for (let i = 1; i <= lines.length; i++) lineHtml += i + '<br>';
+    $('mapEditorLines').innerHTML = lineHtml;
+
+    // 折叠标记
+    const blockMap = {};
+    blocks.forEach(b => { blockMap[b.startLine] = b; });
+    let foldHtml = '';
+    for (let i = 0; i < lines.length; i++) {
+      if (blockMap[i]) {
+        const cls = blockMap[i].collapsed ? 'collapsed' : 'expanded';
+        foldHtml += `<div class="fold-row"><span class="fold-btn ${cls}" data-line="${i}"></span></div>`;
+      } else {
+        foldHtml += '<div class="fold-row"></div>';
+      }
+    }
+    $('mapFoldGutter').innerHTML = foldHtml;
+    $('mapFoldGutter').querySelectorAll('.fold-btn').forEach(btn => {
+      btn.onclick = () => {
+        const line = parseInt(btn.dataset.line);
+        const block = mapFoldState.blocks.find(b => b.startLine === line);
+        if (!block) return;
+        if (block.collapsed) {
+          // 展开
+          if (mapFoldState.originalContent) {
+            textarea.value = mapFoldState.originalContent;
+            mapFoldState.originalContent = '';
+            mapFoldState.blocks.forEach(b => b.collapsed = false);
+            mapViewEditorDirty = true;
+          }
+          rebuildMapUI();
+        } else {
+          // 折叠
+          if (!mapFoldState.originalContent) mapFoldState.originalContent = textarea.value;
+          const lns = textarea.value.split('\n');
+          const hdr = lns[block.startLine];
+          const cls = lns[block.endLine] || ')';
+          const cnt = block.endLine - block.startLine - 1;
+          const folded = hdr + `  [... ${cnt} 行折叠 ...]  ` + cls.trim();
+          const newLns = [...lns.slice(0, block.startLine), folded, ...lns.slice(block.endLine + 1)];
+          textarea.value = newLns.join('\n');
+          block.collapsed = true;
+          mapViewEditorDirty = true;
+          rebuildMapUI();
+        }
+      };
+    });
+
+    // 方括号列
+    const lineRole = {};
+    blocks.forEach(b => {
+      if (b.collapsed || b.endLine - b.startLine < 2) return;
+      lineRole[b.startLine] = 'start';
+      lineRole[b.endLine] = 'end';
+      for (let i = b.startLine + 1; i < b.endLine; i++) if (!lineRole[i]) lineRole[i] = 'mid';
+    });
+    let brHtml = '';
+    for (let i = 0; i < lines.length; i++) {
+      const role = lineRole[i];
+      if (role === 'start') brHtml += '<div class="bracket-line"><span class="bracket-char">[</span></div>';
+      else if (role === 'end') brHtml += '<div class="bracket-line"><span class="bracket-char">]</span></div>';
+      else if (role === 'mid') brHtml += '<div class="bracket-line"><span class="bracket-mid"></span></div>';
+      else brHtml += '<div class="bracket-line"></div>';
+    }
+    $('mapBracketCol').innerHTML = brHtml;
+
+    // 滚动同步
+    textarea.onscroll = () => {
+      const t = textarea.scrollTop;
+      ['mapEditorLines', 'mapFoldGutter', 'mapBracketCol'].forEach(id => {
+        const el = $(id); if (el) el.scrollTop = t;
+      });
+    };
   }
-  updateMapLines();
-  textarea.onscroll = () => {
-    const el = $('mapEditorLines');
-    if (el) el.scrollTop = textarea.scrollTop;
-  };
+
+  rebuildMapUI();
 
   textarea.oninput = () => {
     mapViewEditorDirty = true;
     $('mapEditorStatus').textContent = '● 未保存';
     $('mapEditorStatus').className = 'editor-status dirty';
-    updateMapLines();
+    rebuildMapUI();
   };
 
   $('btnMapEditorSave').onclick = async () => {
     await saveMapViewEditorContent(monsterIndex);
   };
 
-  // 折叠
-  let foldEnabled = false;
-  let mapOriginal = '';
-  let mapFolds = [];
-  $('btnMapToggleFold').onclick = () => {
-    foldEnabled = !foldEnabled;
-    if (foldEnabled) {
-      mapOriginal = textarea.value;
-      const lines = textarea.value.split('\n');
-      mapFolds = [];
-      const stack = [];
-      for (let i = 0; i < lines.length; i++) {
-        const t = lines[i].trim();
-        if (/^#CHILD\b/i.test(t) || /^#CASE\b/i.test(t) || /^#IF\b/i.test(t)) stack.push(i);
-        else if (t === ')' && stack.length > 0) {
-          mapFolds.push({ s: stack.pop(), e: i });
-        }
+  $('btnMapFoldAll').onclick = () => {
+    if (!mapFoldState.originalContent) mapFoldState.originalContent = textarea.value;
+    const sorted = [...mapFoldState.blocks].sort((a, b) => b.startLine - a.startLine);
+    for (const block of sorted) {
+      if (!block.collapsed) {
+        const lns = textarea.value.split('\n');
+        const hdr = lns[block.startLine];
+        const cls = lns[block.endLine] || ')';
+        const cnt = block.endLine - block.startLine - 1;
+        const folded = hdr + `  [... ${cnt} 行折叠 ...]  ` + cls.trim();
+        textarea.value = [...lns.slice(0, block.startLine), folded, ...lns.slice(block.endLine + 1)].join('\n');
+        block.collapsed = true;
       }
-      const sorted = [...mapFolds].sort((a, b) => b.s - a.s);
-      for (const r of sorted) {
-        const folded = lines[r.s] + ' ... (' + lines[r.e].trim() + ')';
-        lines.splice(r.s, r.e - r.s + 1, folded);
-      }
-      textarea.value = lines.join('\n');
-      $('btnMapToggleFold').textContent = '📂 展开';
-    } else {
-      textarea.value = mapOriginal;
-      $('btnMapToggleFold').textContent = '📁 折叠';
     }
     mapViewEditorDirty = true;
-    updateMapLines();
+    rebuildMapUI();
+  };
+
+  $('btnMapUnfoldAll').onclick = () => {
+    if (mapFoldState.originalContent) {
+      textarea.value = mapFoldState.originalContent;
+      mapFoldState.originalContent = '';
+      mapFoldState.blocks.forEach(b => b.collapsed = false);
+      mapViewEditorDirty = true;
+    }
+    rebuildMapUI();
   };
 
   textarea.onkeydown = (e) => {

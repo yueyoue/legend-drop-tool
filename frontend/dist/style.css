@@ -138,18 +138,30 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 .editor-status.saved{color:#2e8b57}
 .editor-status.error{color:#cc0000}
 .editor-wrap{flex:1;display:flex;overflow:hidden;position:relative}
-.editor-lines{width:50px;background:#f5f5f5;color:#999;text-align:right;padding:10px 6px 10px 0;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:15px;line-height:1.8;overflow:hidden;user-select:none;border-right:1px solid #e0e0e0;flex-shrink:0}
+/* line numbers */
+.editor-lines{width:44px;background:#f5f5f5;color:#999;text-align:right;padding:10px 4px 10px 0;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:15px;line-height:1.8;overflow:hidden;user-select:none;border-right:1px solid #e0e0e0;flex-shrink:0}
+/* fold gutter with +/- markers */
+.fold-gutter{width:22px;background:#f5f5f5;border-right:1px solid #e0e0e0;flex-shrink:0;overflow:hidden;user-select:none;position:relative}
+.fold-gutter .fold-row{height:27px;display:flex;align-items:center;justify-content:center}
+.fold-btn{width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#666;cursor:pointer;border-radius:3px;background:#e8e8e8;border:1px solid #ccc;line-height:1}
+.fold-btn:hover{background:#d0d0d0;color:#333}
+.fold-btn.expanded::before{content:'−'}
+.fold-btn.collapsed::before{content:'+'}
+/* bracket visual for #CHILD blocks */
+.bracket-col{width:14px;flex-shrink:0;overflow:hidden;position:relative;user-select:none}
+.bracket-line{height:27px;position:relative}
+.bracket-line .bracket-char{position:absolute;right:2px;font-size:15px;color:#6a5acd;font-weight:400;font-family:'Cascadia Code','Consolas',monospace;line-height:1.8}
+.bracket-line .bracket-vline{position:absolute;right:6px;top:0;bottom:0;width:2px;background:#6a5acd;border-radius:1px}
+.bracket-line .bracket-top{position:absolute;right:6px;top:50%;width:6px;height:2px;background:#6a5acd}
+.bracket-line .bracket-bot{position:absolute;right:6px;bottom:50%;width:6px;height:2px;background:#6a5acd}
+.bracket-line .bracket-mid{position:absolute;right:6px;top:0;width:2px;height:100%;background:#6a5acd}
+/* text editor textarea */
 .text-editor{flex:1;width:100%;background:#fff;color:#1a1a2e;border:none;outline:none;resize:none;padding:10px 14px;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:15px;line-height:1.8;tab-size:4;overflow:auto;white-space:pre;word-wrap:normal}
 .text-editor::selection{background:#b3d7ff}
 .text-editor::-webkit-scrollbar{width:8px;height:8px}
 .text-editor::-webkit-scrollbar-track{background:#f5f5f5}
 .text-editor::-webkit-scrollbar-thumb{background:#ccc;border-radius:4px}
 .text-editor::-webkit-scrollbar-thumb:hover{background:#aaa}
-/* fold gutter */
-.fold-gutter{width:20px;background:#f5f5f5;border-right:1px solid #e0e0e0;flex-shrink:0;overflow:hidden;user-select:none}
-.fold-marker{height:27px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#999;cursor:pointer}
-.fold-marker:hover{color:#333;background:#e8e8e8}
-.fold-marker.has-fold{color:#6a5acd;font-weight:700}
 
 /* sim tab */
 .sim-filter{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px 16px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
