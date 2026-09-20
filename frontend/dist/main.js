@@ -415,11 +415,11 @@ function renderBracketCol(lineCount) {
   for (let i = 0; i < lineCount; i++) {
     const role = lineRole[i];
     if (role === 'start') {
-      html += '<div class="bracket-line"><span class="bracket-char">[</span></div>';
+      html += '<div class="bracket-line bk-top"><span class="bracket-char">[</span></div>';
     } else if (role === 'end') {
-      html += '<div class="bracket-line"><span class="bracket-char">]</span></div>';
+      html += '<div class="bracket-line bk-bot"><span class="bracket-char">]</span></div>';
     } else if (role === 'mid') {
-      html += '<div class="bracket-line"><span class="bracket-mid"></span></div>';
+      html += '<div class="bracket-line bk-mid"></div>';
     } else {
       html += '<div class="bracket-line"></div>';
     }
@@ -1529,9 +1529,9 @@ function renderMapViewTextEditor(content, monsterIndex) {
     let brHtml = '';
     for (let i = 0; i < lines.length; i++) {
       const role = lineRole[i];
-      if (role === 'start') brHtml += '<div class="bracket-line"><span class="bracket-char">[</span></div>';
-      else if (role === 'end') brHtml += '<div class="bracket-line"><span class="bracket-char">]</span></div>';
-      else if (role === 'mid') brHtml += '<div class="bracket-line"><span class="bracket-mid"></span></div>';
+      if (role === 'start') brHtml += '<div class="bracket-line bk-top"><span class="bracket-char">[</span></div>';
+      else if (role === 'end') brHtml += '<div class="bracket-line bk-bot"><span class="bracket-char">]</span></div>';
+      else if (role === 'mid') brHtml += '<div class="bracket-line bk-mid"></div>';
       else brHtml += '<div class="bracket-line"></div>';
     }
     $('mapBracketCol').innerHTML = brHtml;
