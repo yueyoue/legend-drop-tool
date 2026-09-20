@@ -289,6 +289,118 @@ func buildDropEntry(match []string, rawLine string, depth int) *DropEntry {
 	return entry
 }
 
+// ReparseFromRaw 从原始文本重新解析条目（用于文本编辑器保存后重建条目列表）
+func ReparseFromRaw(content string) []*DropEntry {
+	var entries []*DropEntry
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	lineNum := 0
+	depth := 0
+
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// 空行跳过
+		if reEmpty.MatchString(trimmed) {
+			continue
+		}
+
+		// 注释行
+		if reComment.MatchString(trimmed) {
+			entries = append(entries, &DropEntry{
+				LineNumber: lineNum, Depth: depth, IsComment: true, RawLine: line,
+			})
+			continue
+		}
+
+		// #CALL引用
+		if match := reCallRef.FindStringSubmatch(trimmed); match != nil {
+			e := &DropEntry{
+				LineNumber: lineNum, Depth: depth, IsCallRef: true,
+				CallPath: strings.TrimSpace(match[1]), RawLine: line,
+			}
+			if len(match) > 2 && match[2] != "" {
+				e.CallLabel = match[2]
+			}
+			entries = append(entries, e)
+			continue
+		}
+
+		// #CHILD开始
+		if match := reChildStart.FindStringSubmatch(trimmed); match != nil {
+			entries = append(entries, &DropEntry{
+				LineNumber: lineNum, Depth: depth, IsChildStart: true,
+				ChildProbability: match[1],
+				ChildRandom: len(match) > 2 && strings.ToUpper(match[2]) == "RANDOM",
+				RawLine: line,
+			})
+			depth++
+			continue
+		}
+
+		// #CASE开始
+		if match := reCaseStart.FindStringSubmatch(trimmed); match != nil {
+			entries = append(entries, &DropEntry{
+				LineNumber: lineNum, Depth: depth, IsCaseStart: true,
+				CaseExpression: strings.TrimSpace(match[1]),
+				ChildRandom: len(match) > 2 && strings.ToUpper(match[2]) == "RANDOM",
+				RawLine: line,
+			})
+			depth++
+			continue
+		}
+
+		// #IF开始
+		if match := reIfStart.FindStringSubmatch(trimmed); match != nil {
+			entries = append(entries, &DropEntry{
+				LineNumber: lineNum, Depth: depth, IsIfStart: true,
+				CaseExpression: strings.TrimSpace(match[1]),
+				ChildRandom: len(match) > 2 && strings.ToUpper(match[2]) == "RANDOM",
+				RawLine: line,
+			})
+			depth++
+			continue
+		}
+
+		// 单独的 (
+		if reParenOpen.MatchString(trimmed) {
+			entries = append(entries, &DropEntry{LineNumber: lineNum, Depth: depth, RawLine: line})
+			depth++
+			continue
+		}
+
+		// 单独的 )
+		if reParenClose.MatchString(trimmed) {
+			if depth > 0 {
+				depth--
+			}
+			entries = append(entries, &DropEntry{LineNumber: lineNum, Depth: depth, IsChildEnd: true, RawLine: line})
+			continue
+		}
+
+		// #CASE 条件值行
+		if depth > 0 {
+			if val, err := strconv.Atoi(trimmed); err == nil && val > 0 {
+				entries = append(entries, &DropEntry{
+					LineNumber: lineNum, Depth: depth,
+					CaseExpression: fmt.Sprintf("=%d", val), RawLine: line,
+				})
+				continue
+			}
+		}
+
+		// 掉落条目
+		if match := findDropMatch(trimmed, line); match != nil {
+			match.LineNumber = lineNum
+			match.Depth = depth
+			entries = append(entries, match)
+			continue
+		}
+	}
+	return entries
+}
+
 // detectEngineFromContent 通过内容特征检测引擎
 func detectEngineFromContent(content string) EngineType {
 	upper := strings.ToUpper(content)

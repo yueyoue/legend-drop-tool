@@ -224,9 +224,21 @@ func (e *Editor) SaveAs(file *parser.MonsterDropFile, newPath string) error {
 }
 
 // RebuildRawContent 根据条目重建原始内容
+// 对于可编辑条目，从字段重建 RawLine 以反映内存中的修改
 func (e *Editor) RebuildRawContent(file *parser.MonsterDropFile) {
 	var lines []string
 	for _, entry := range file.Entries {
+		if entry.IsEditable() {
+			// 从字段重建原始行
+			line := fmt.Sprintf("%d/%d %s", entry.ProbabilityNumerator, entry.ProbabilityDenominator, entry.ItemName)
+			if entry.HasTrigger {
+				line += "|" + entry.TriggerName
+			}
+			if entry.Quantity > 1 {
+				line += fmt.Sprintf(" %d", entry.Quantity)
+			}
+			entry.RawLine = line
+		}
 		lines = append(lines, entry.RawLine)
 	}
 	file.RawContent = strings.Join(lines, "\r\n")

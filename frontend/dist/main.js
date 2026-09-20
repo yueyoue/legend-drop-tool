@@ -226,84 +226,89 @@ async function selectMonster(idx) {
   if (dbItems.length > 0) renderItemPanel(idx);
 }
 
+// 文本编辑器相关状态
+let editorDirty = false;
+let editorDebounceTimer = null;
+
 async function loadEntries(idx) {
   try {
-    const entries = await window.go.app.App.GetEntries(idx);
-    renderEntries(entries);
+    // 检查当前编辑器是否有未保存的修改
+    if (editorDirty && currentMonsterIdx >= 0) {
+      await saveEditorContent(currentMonsterIdx);
+    }
+    const rawContent = await window.go.app.App.GetRawContent(idx);
+    renderTextEditor(rawContent, idx);
   } catch(e) { setStatus('错误: ' + e); }
 }
 
-function renderEntries(entries) {
+function renderTextEditor(content, monsterIdx) {
   const list = $('entryList');
-  if (!entries) { list.innerHTML = ''; return; }
-  let html = `<table class="entry-table">
-    <colgroup><col style="width:28px"><col style="width:100px"><col><col style="width:60px"><col style="width:140px"><col style="width:60px"></colgroup>
-    <thead><tr><th></th><th>概率</th><th>物品名称</th><th>数量</th><th>触发器</th><th>操作</th></tr></thead><tbody>`;
-  entries.forEach((e, i) => {
-    const indent = '  '.repeat(e.depth);
-    let icon = '🎯', cls = '';
-    if (e.isComment) { icon = '📝'; cls = 'ecomm'; }
-    else if (e.isCallRef) { icon = '📎'; cls = 'ecall'; }
-    else if (e.isChildStart || e.isChildEnd) { icon = '📦'; cls = 'echild'; }
-    else if (e.isCaseStart || e.isIfStart) { icon = '🔀'; cls = 'echild'; }
+  const monName = monsters[monsterIdx]?.name || '';
+  list.innerHTML = `
+    <div class="editor-toolbar">
+      <span class="editor-mon-name">📝 ${monName}</span>
+      <div class="editor-actions">
+        <span class="editor-status" id="editorStatus"></span>
+        <button class="btn btn-sm" id="btnEditorUndo" title="撤销">↩️</button>
+        <button class="btn btn-sm btn-gold" id="btnEditorSave" title="保存文件">💾 保存</button>
+      </div>
+    </div>
+    <textarea class="text-editor" id="textEditor" spellcheck="false"></textarea>
+  `;
+  const textarea = $('textEditor');
+  textarea.value = content;
+  editorDirty = false;
 
-    if (e.isEditable) {
-      const trigVal = e.hasTrigger ? e.triggerName : '';
-      html += `<tr class="entry-row" data-idx="${i}">
-        <td class="col-icon"><span class="icon">${icon}</span></td>
-        <td class="col-prob"><input class="edit-input" data-field="prob" data-idx="${i}" value="${e.probNum}/${e.probDen}" /></td>
-        <td class="col-item"><span class="iname">${indent}${e.itemName}</span></td>
-        <td class="col-qty"><input class="edit-input" data-field="qty" data-idx="${i}" value="${e.quantity}" style="width:50px;text-align:right" /></td>
-        <td class="col-trigger"><span class="trig">${trigVal}</span></td>
-        <td class="col-action"><button class="btn-save-entry" data-idx="${i}" title="保存修改">💾</button></td>
-      </tr>`;
-    } else {
-      let text = '';
-      if (e.isComment) text = e.rawLine;
-      else if (e.isCallRef) text = `#CALL [${e.callPath}]` + (e.callLabel ? ' ' + e.callLabel : '');
-      else if (e.isChildStart) text = `#CHILD ${e.childProb}` + (e.childRandom ? ' RANDOM' : '');
-      else if (e.isChildEnd) text = ')';
-      else if (e.isCaseStart) text = `#CASE ${e.caseExpr}`;
-      else if (e.isIfStart) text = `#IF ${e.caseExpr}`;
-      else text = e.rawLine;
-      html += `<tr class="entry-row">
-        <td class="col-icon"><span class="icon ${cls}">${icon}</span></td>
-        <td colspan="4" class="${cls}">${indent}${text}</td>
-        <td></td>
-      </tr>`;
+  // 输入事件 - 标记为已修改
+  textarea.oninput = () => {
+    editorDirty = true;
+    $('editorStatus').textContent = '● 未保存';
+    $('editorStatus').className = 'editor-status dirty';
+    // 防抖：停止输入 1 秒后自动标记
+    clearTimeout(editorDebounceTimer);
+    editorDebounceTimer = setTimeout(() => {}, 1000);
+  };
+
+  // 保存按钮
+  $('btnEditorSave').onclick = async () => {
+    await saveEditorContent(monsterIdx);
+  };
+
+  // 撤销（浏览器内置）
+  $('btnEditorUndo').onclick = () => {
+    document.execCommand('undo');
+    textarea.focus();
+  };
+
+  // Ctrl+S 保存
+  textarea.onkeydown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveEditorContent(monsterIdx);
     }
-  });
-  html += '</tbody></table>';
-  list.innerHTML = html;
+  };
 
-  // 绑定编辑事件
-  list.querySelectorAll('.edit-input').forEach(input => {
-    input.onfocus = () => input.closest('tr').classList.add('editing');
-    input.onblur = () => input.closest('tr').classList.remove('editing');
-    input.oninput = () => input.classList.add('changed');
-  });
-  list.querySelectorAll('.btn-save-entry').forEach(btn => {
-    btn.onclick = async () => {
-      const idx = parseInt(btn.dataset.idx);
-      const entry = entries[idx];
-      if (!entry || !entry.isEditable) return;
-      const row = btn.closest('tr');
-      const probInput = row.querySelector('input[data-field="prob"]');
-      const qtyInput = row.querySelector('input[data-field="qty"]');
-      const parts = probInput.value.split('/');
-      const num = parseInt(parts[0]) || 1;
-      const den = parseInt(parts[1]) || 100;
-      const qty = parseInt(qtyInput.value) || 1;
-      if (den <= 0 || qty <= 0) return setStatus('请输入有效正整数');
-      try {
-        await window.go.app.App.ModifyEntry(currentMonsterIdx, idx, num, den, qty);
-        probInput.classList.remove('changed');
-        qtyInput.classList.remove('changed');
-        setStatus(`已保存: ${entry.itemName} ${num}/${den} x${qty}`);
-        addLog(`修改 ${entry.itemName}: ${num}/${den} x${qty}`);
-      } catch(e) { setStatus('保存失败: ' + e); }
-    };
-  });
+  textarea.focus();
+}
+
+async function saveEditorContent(monsterIdx) {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  const content = textarea.value;
+  try {
+    await window.go.app.App.SaveRawContent(monsterIdx, content);
+    editorDirty = false;
+    $('editorStatus').textContent = '✓ 已保存';
+    $('editorStatus').className = 'editor-status saved';
+    setStatus(`已保存: ${monsters[monsterIdx]?.name || ''}`);
+    addLog(`保存文件: ${monsters[monsterIdx]?.name || ''}`);
+    // 刷新物品面板
+    if (dbItems.length > 0) renderItemPanel(monsterIdx);
+  } catch(e) {
+    $('editorStatus').textContent = '✕ 保存失败';
+    $('editorStatus').className = 'editor-status error';
+    setStatus('保存失败: ' + e);
+  }
 }
 
 // ===== 爆率修改 =====
@@ -898,9 +903,33 @@ function initItemPanelSearch() {
 // ===== 物品面板右键菜单 =====
 function showItemCtxMenu(x, y) {
   const menu = $('itemCtxMenu');
-  menu.style.left = x + 'px';
-  menu.style.top = y + 'px';
+  // 先设置位置并显示以获取尺寸
+  menu.style.left = '0px';
+  menu.style.top = '0px';
   menu.classList.add('show');
+  const menuW = menu.offsetWidth;
+  const menuH = menu.offsetHeight;
+  const viewW = window.innerWidth;
+  const viewH = window.innerHeight;
+  // 如果右侧放不下，向左弹出
+  let finalX = x;
+  let finalY = y;
+  if (x + menuW > viewW) finalX = x - menuW;
+  if (y + menuH > viewH) finalY = y - menuH;
+  if (finalX < 0) finalX = 0;
+  if (finalY < 0) finalY = 0;
+  menu.style.left = finalX + 'px';
+  menu.style.top = finalY + 'px';
+  // 子菜单位置：检测右侧空间
+  const subMenu = $('itemCtxSubMenu');
+  subMenu.classList.remove('pos-right', 'pos-left');
+  // 主菜单右侧剩余空间
+  const spaceRight = viewW - (finalX + menuW);
+  if (spaceRight < 160) {
+    subMenu.classList.add('pos-left');
+  } else {
+    subMenu.classList.add('pos-right');
+  }
 }
 function hideItemCtxMenu() {
   $('itemCtxMenu').classList.remove('show');

@@ -295,6 +295,34 @@ func (a *App) AddRawEntry(monsterIndex int, rawText string) error {
 	return nil
 }
 
+// GetRawContent 获取爆率文件原始文本内容
+func (a *App) GetRawContent(monsterIndex int) (string, error) {
+	if a.currentResults == nil || monsterIndex < 0 || monsterIndex >= len(a.currentResults) {
+		return "", fmt.Errorf("无效的怪物索引")
+	}
+	file := a.currentResults[monsterIndex].File
+	// 始终从当前条目重建，确保反映所有内存中的修改
+	a.editor.RebuildRawContent(file)
+	return file.RawContent, nil
+}
+
+// SaveRawContent 保存编辑后的原始文本内容
+func (a *App) SaveRawContent(monsterIndex int, content string) error {
+	if a.currentResults == nil || monsterIndex < 0 || monsterIndex >= len(a.currentResults) {
+		return fmt.Errorf("无效的怪物索引")
+	}
+	file := a.currentResults[monsterIndex].File
+	// 备份
+	if a.cfg.AutoBackup && a.backupMgr != nil {
+		a.backupMgr.BackupFile(file.FilePath)
+	}
+	// 保存原始内容
+	file.RawContent = content
+	// 重新解析条目（这样 GetEntries 等其他 API 仍能正常工作）
+	file.Entries = parser.ReparseFromRaw(content)
+	return a.editor.SaveFile(file)
+}
+
 // BatchMultiply 批量倍率调整
 func (a *App) BatchMultiply(monsterIndex int, multiplier float64) (int, error) {
 	if a.currentResults == nil || monsterIndex < 0 || monsterIndex >= len(a.currentResults) {

@@ -116,7 +116,9 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 .ctx-item:hover{background:var(--hover);color:var(--accent)}
 .ctx-item.has-sub{display:flex;align-items:center;justify-content:space-between}
 .ctx-arrow{font-size:10px;color:var(--t3);margin-left:12px}
-.ctx-sub-menu{display:none;position:absolute;left:100%;top:0;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);min-width:150px;box-shadow:0 4px 16px rgba(0,0,0,.4);padding:4px 0;z-index:151}
+.ctx-sub-menu{display:none;position:absolute;top:0;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);min-width:150px;box-shadow:0 4px 16px rgba(0,0,0,.4);padding:4px 0;z-index:151}
+.ctx-sub-menu.pos-right{left:100%;right:auto}
+.ctx-sub-menu.pos-left{right:100%;left:auto}
 .ctx-item.has-sub:hover .ctx-sub-menu,.ctx-sub-menu.show{display:block}
 .ctx-sep{height:1px;background:var(--border);margin:4px 0}
 /* multi-map monster highlight */
@@ -126,29 +128,20 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 /* monster checkbox */
 .mon-cb-wrap{display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .mon-cb{accent-color:var(--accent);cursor:pointer;margin:0}
-/* entry list - inline editable table */
-.entry-list{flex:1;overflow-y:auto;overflow-x:auto}
-.entry-table{width:100%;border-collapse:collapse;font-family:'Cascadia Code','Consolas',monospace;font-size:12px}
-.entry-table th{position:sticky;top:0;z-index:2;background:var(--bg2);color:var(--t2);font-weight:600;padding:6px 10px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
-.entry-table td{padding:4px 8px;border-bottom:1px solid rgba(42,46,66,.3);white-space:nowrap}
-.entry-table tr:hover{background:var(--hover)}
-.entry-table tr.editing{background:rgba(212,168,67,.08)}
-.entry-table .col-icon{width:28px;text-align:center}
-.entry-table .col-prob{width:100px}
-.entry-table .col-item{min-width:120px}
-.entry-table .col-qty{width:60px;text-align:right}
-.entry-table .col-trigger{width:140px}
-.entry-table .col-action{width:60px;text-align:center}
-.entry-table input.edit-input{background:var(--bg0);border:1px solid var(--border);color:var(--t1);padding:3px 6px;border-radius:var(--r);font-size:12px;font-family:'Cascadia Code','Consolas',monospace;width:100%;box-sizing:border-box}
-.entry-table input.edit-input:focus{border-color:var(--accent);outline:none}
-.entry-table input.edit-input.changed{border-color:var(--success);background:rgba(78,203,113,.08)}
-.entry-table .btn-save-entry{padding:2px 8px;font-size:10px;cursor:pointer;background:var(--accent);color:#000;border:none;border-radius:var(--r);font-weight:600}
-.entry-table .btn-save-entry:hover{background:var(--accent2)}
-.entry-row .prob{color:var(--accent)}
-.entry-row .iname{color:var(--info)}
-.entry-row .trig{color:var(--t3);font-size:11px}
-.entry-row .qty{color:var(--purple)}
-.entry-row .icon{width:20px;text-align:center;display:inline-block}
+/* entry list - text editor (notepad style) */
+.entry-list{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.editor-toolbar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;gap:8px}
+.editor-mon-name{font-weight:600;font-size:12px;color:var(--accent)}
+.editor-actions{display:flex;align-items:center;gap:8px}
+.editor-status{font-size:11px;min-width:60px;text-align:right}
+.editor-status.dirty{color:var(--accent)}
+.editor-status.saved{color:var(--success)}
+.editor-status.error{color:var(--danger)}
+.text-editor{flex:1;width:100%;background:var(--bg0);color:var(--t1);border:none;outline:none;resize:none;padding:8px 12px;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:13px;line-height:1.6;tab-size:4;overflow:auto;white-space:pre;word-wrap:normal}
+.text-editor::selection{background:rgba(212,168,67,.3)}
+.text-editor::-webkit-scrollbar{width:8px;height:8px}
+.text-editor::-webkit-scrollbar-track{background:var(--bg1)}
+.text-editor::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 .ecomm{color:var(--t3);font-style:italic}.ecall{color:var(--success)}.echild{color:var(--purple);font-weight:600}
 
 /* sim tab */
