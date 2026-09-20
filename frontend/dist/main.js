@@ -88,14 +88,18 @@ function initSetupPage() {
   $('setupDBBrowse').onclick = async () => {
     try {
       const t = dbTypeSelect.value;
-      let result;
-      if (t === 'Excel') {
-        result = await window.go.app.App.SelectFile('Excel 文件 (*.xls;*.xlsx)|*.xls;*.xlsx');
-      } else {
-        result = await window.go.app.App.SelectFile();
-      }
+      const titles = {
+        'BDE': '选择 BDE 数据库文件 (*.DB)|*.DB',
+        'Access': '选择 Access 数据库文件 (*.MDB)|*.MDB',
+        'SQLite': '选择 SQLite 数据库文件 (*.db3;*.db)|*.db3;*.db',
+        'Excel': '选择 Excel 文件 (*.xls;*.xlsx)|*.xls;*.xlsx'
+      };
+      const title = titles[t] || '选择数据库文件';
+      const result = await window.go.app.App.SelectFile(title);
       if (result) $('setupDBPath').value = result;
-    } catch(e) {}
+    } catch(e) {
+      $('setupStatus').textContent = '选择文件失败: ' + e;
+    }
   };
 
   // 开始使用
