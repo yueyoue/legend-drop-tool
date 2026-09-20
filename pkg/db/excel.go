@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/meisbokai/xls"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -21,132 +20,97 @@ func newExcelReader(cfg DBConfig) (Reader, error) {
 }
 
 func (r *excelReader) ReadItems() ([]ItemInfo, error) {
-	// 996 引擎使用 cfg_equip.xls（装备表）和 cfg_item.xls（道具表）
+	// 996 引擎使用 cfg_equip + cfg_item 表
+	// 支持 .xlsx 格式，.xls 需先另存为 .xlsx
 	dir := filepath.Dir(r.filePath)
-	ext := strings.ToLower(filepath.Ext(r.filePath))
 
-	// 根据用户选择的文件扩展名决定读取方式
-	if ext == ".xls" {
-		return r.readXls(dir)
-	}
-	return r.readXlsx(dir)
-}
+	// 尝试两种文件名
+	baseNames := []string{"cfg_equip", "cfg_item"}
+	exts := []string{".xlsx", ".xls"}
 
-// readXls 读取 .xls 格式 (Excel 97-2003)
-func (r *excelReader) readXls(dir string) ([]ItemInfo, error) {
-	files := []string{
-		filepath.Join(dir, "cfg_equip.xls"),
-		filepath.Join(dir, "cfg_item.xls"),
-	}
 	var allItems []ItemInfo
-	for _, f := range files {
-		wb, err := xls.Open(f, "utf-8")
-		if err != nil {
-			continue
-		}
-		sheet := wb.GetSheet(0)
-		if sheet == nil {
-			continue
-		}
-		// 找到 Name 列
-		nameCol := -1
-		idxCol := -1
-		if sheet.MaxRow > 0 {
-			row := sheet.Row(0)
-			for i := 0; i < row.LastCol(); i++ {
-				cell := strings.ToLower(strings.TrimSpace(row.Col(i)))
-				if cell == "name" || cell == "物品名称" {
-					nameCol = i
-				}
-				if cell == "idx" || cell == "id" || cell == "编号" {
-					idxCol = i
-				}
+
+	for _, base := range baseNames {
+		for _, ext := range exts {
+			fPath := filepath.Join(dir, base+ext)
+			items, err := r.readSheet(fPath)
+			if err == nil {
+				allItems = append(allItems, items...)
+				break // 找到一个就够了
 			}
-		}
-		if nameCol < 0 {
-			nameCol = 1 // 默认第2列
-			idxCol = 0
-		}
-		for i := 1; i <= int(sheet.MaxRow); i++ {
-			row := sheet.Row(i)
-			if row == nil {
-				continue
-			}
-			name := strings.TrimSpace(row.Col(nameCol))
-			if name == "" {
-				continue
-			}
-			item := ItemInfo{Idx: i, Name: name}
-			if idxCol >= 0 {
-				fmt.Sscanf(row.Col(idxCol), "%d", &item.Idx)
-			}
-			allItems = append(allItems, item)
 		}
 	}
+
+	// 也尝试用户直接指定的文件
+	items, err := r.readSheet(r.filePath)
+	if err == nil {
+		allItems = append(allItems, items...)
+	}
+
 	if len(allItems) == 0 {
-		return nil, &DBError{Msg: "未找到物品数据，请确认 cfg_equip.xls / cfg_item.xls 在同一目录"}
+		return nil, &DBError{Msg: "未找到物品数据。请确认 cfg_equip.xlsx / cfg_item.xlsx 在同一目录，或将 .xls 另存为 .xlsx 格式"}
 	}
 	return allItems, nil
 }
 
-// readXlsx 读取 .xlsx 格式
-func (r *excelReader) readXlsx(dir string) ([]ItemInfo, error) {
-	files := []string{
-		filepath.Join(dir, "cfg_equip.xlsx"),
-		filepath.Join(dir, "cfg_item.xlsx"),
+func (r *excelReader) readSheet(filePath string) ([]ItemInfo, error) {
+	f, err := excelize.OpenFile(filePath)
+	if err != nil {
+		return nil, err
 	}
-	var allItems []ItemInfo
-	for _, f := range files {
-		xf, err := excelize.OpenFile(f)
-		if err != nil {
-			continue
+	defer f.Close()
+
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return nil, fmt.Errorf("Excel 文件没有工作表")
+	}
+
+	rows, err := f.GetRows(sheets[0])
+	if err != nil || len(rows) == 0 {
+		return nil, fmt.Errorf("读取工作表失败")
+	}
+
+	// 找到 Name 列和 Idx 列
+	nameCol := -1
+	idxCol := -1
+	for i, cell := range rows[0] {
+		cellLower := strings.ToLower(strings.TrimSpace(cell))
+		if cellLower == "name" || cellLower == "物品名称" {
+			nameCol = i
 		}
-		defer xf.Close()
-		sheets := xf.GetSheetList()
-		if len(sheets) == 0 {
-			continue
+		if cellLower == "idx" || cellLower == "id" || cellLower == "编号" {
+			idxCol = i
 		}
-		rows, err := xf.GetRows(sheets[0])
-		if err != nil || len(rows) == 0 {
-			continue
-		}
-		nameCol := -1
-		idxCol := -1
-		for i, cell := range rows[0] {
-			cellLower := strings.ToLower(strings.TrimSpace(cell))
-			if cellLower == "name" || cellLower == "物品名称" {
-				nameCol = i
-			}
-			if cellLower == "idx" || cellLower == "id" || cellLower == "编号" {
-				idxCol = i
-			}
-		}
-		if nameCol < 0 {
+	}
+	if nameCol < 0 {
+		// 默认第2列为 Name
+		if len(rows[0]) >= 2 {
+			idxCol = 0
 			nameCol = 1
-			idxCol = 0
-		}
-		for i, row := range rows {
-			if i == 0 {
-				continue
-			}
-			if nameCol >= len(row) {
-				continue
-			}
-			name := strings.TrimSpace(row[nameCol])
-			if name == "" {
-				continue
-			}
-			item := ItemInfo{Idx: i, Name: name}
-			if idxCol >= 0 && idxCol < len(row) {
-				fmt.Sscanf(row[idxCol], "%d", &item.Idx)
-			}
-			allItems = append(allItems, item)
+		} else {
+			return nil, fmt.Errorf("无法识别 Name 列")
 		}
 	}
-	if len(allItems) == 0 {
-		return nil, &DBError{Msg: "未找到物品数据，请确认 cfg_equip.xlsx / cfg_item.xlsx 在同一目录"}
+
+	var items []ItemInfo
+	for i, row := range rows {
+		if i == 0 {
+			continue // 跳过表头
+		}
+		if nameCol >= len(row) {
+			continue
+		}
+		name := strings.TrimSpace(row[nameCol])
+		if name == "" {
+			continue
+		}
+		item := ItemInfo{Idx: i, Name: name}
+		if idxCol >= 0 && idxCol < len(row) {
+			fmt.Sscanf(row[idxCol], "%d", &item.Idx)
+		}
+		items = append(items, item)
 	}
-	return allItems, nil
+	return items, nil
 }
 
 func (r *excelReader) Close() error {
