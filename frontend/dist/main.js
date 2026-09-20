@@ -258,21 +258,35 @@ function renderTextEditor(content, monsterIdx) {
       <div class="editor-actions">
         <span class="editor-status" id="editorStatus"></span>
         <button class="btn btn-sm" id="btnEditorUndo" title="撤销">↩️</button>
-        <button class="btn btn-sm btn-gold" id="btnEditorSave" title="保存文件">💾 保存</button>
+        <button class="btn btn-sm" id="btnToggleFold" title="折叠/展开 #CHILD 块">📁 折叠</button>
+        <button class="btn btn-sm btn-gold" id="btnEditorSave" title="保存文件 (Ctrl+S)">💾 保存</button>
       </div>
     </div>
-    <textarea class="text-editor" id="textEditor" spellcheck="false"></textarea>
+    <div class="editor-wrap">
+      <div class="editor-lines" id="editorLines"></div>
+      <textarea class="text-editor" id="textEditor" spellcheck="false"></textarea>
+    </div>
   `;
   const textarea = $('textEditor');
   textarea.value = content;
   editorDirty = false;
 
-  // 输入事件 - 标记为已修改
+  // 初始化行号和折叠
+  updateEditorLineNumbers();
+  buildFoldMap();
+
+  // 滚动同步行号
+  textarea.onscroll = () => {
+    const lines = $('editorLines');
+    if (lines) lines.scrollTop = textarea.scrollTop;
+  };
+
+  // 输入事件
   textarea.oninput = () => {
     editorDirty = true;
     $('editorStatus').textContent = '● 未保存';
     $('editorStatus').className = 'editor-status dirty';
-    // 防抖：停止输入 1 秒后自动标记
+    updateEditorLineNumbers();
     clearTimeout(editorDebounceTimer);
     editorDebounceTimer = setTimeout(() => {}, 1000);
   };
@@ -282,10 +296,23 @@ function renderTextEditor(content, monsterIdx) {
     await saveEditorContent(monsterIdx);
   };
 
-  // 撤销（浏览器内置）
+  // 撤销
   $('btnEditorUndo').onclick = () => {
     document.execCommand('undo');
     textarea.focus();
+  };
+
+  // 折叠/展开
+  let foldEnabled = false;
+  $('btnToggleFold').onclick = () => {
+    foldEnabled = !foldEnabled;
+    if (foldEnabled) {
+      applyFolds();
+      $('btnToggleFold').textContent = '📂 展开';
+    } else {
+      removeFolds();
+      $('btnToggleFold').textContent = '📁 折叠';
+    }
   };
 
   // Ctrl+S 保存
@@ -297,6 +324,70 @@ function renderTextEditor(content, monsterIdx) {
   };
 
   textarea.focus();
+}
+
+// 编辑器行号更新
+function updateEditorLineNumbers() {
+  const textarea = $('textEditor');
+  const linesEl = $('editorLines');
+  if (!textarea || !linesEl) return;
+  const lineCount = textarea.value.split('\n').length;
+  let html = '';
+  for (let i = 1; i <= lineCount; i++) {
+    html += i + '\n';
+  }
+  linesEl.textContent = html;
+}
+
+// #CHILD 折叠功能
+let foldRanges = []; // [{startLine, endLine, collapsed}]
+let originalContent = '';
+
+function buildFoldMap() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  const lines = textarea.value.split('\n');
+  foldRanges = [];
+  const stack = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (/^#CHILD\b/i.test(trimmed) || /^#CASE\b/i.test(trimmed) || /^#IF\b/i.test(trimmed)) {
+      stack.push(i);
+    } else if (trimmed === ')' && stack.length > 0) {
+      const startLine = stack.pop();
+      foldRanges.push({ startLine, endLine: i, collapsed: false });
+    }
+  }
+}
+
+function applyFolds() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  originalContent = textarea.value;
+  const lines = textarea.value.split('\n');
+  // 按 startLine 降序排列，从后往前折叠
+  const sorted = [...foldRanges].sort((a, b) => b.startLine - a.startLine);
+  for (const range of sorted) {
+    // 保留 #CHILD 行，折叠中间内容到最后一个 )
+    const before = lines.slice(0, range.startLine + 1);
+    const after = lines.slice(range.endLine + 1);
+    const foldedLine = lines[range.startLine] + ' ... (' + lines[range.endLine].trim() + ')';
+    lines.splice(range.startLine, range.endLine - range.startLine + 1, foldedLine);
+    range.collapsed = true;
+    range.foldedLineIdx = range.startLine;
+  }
+  textarea.value = lines.join('\n');
+  editorDirty = true;
+  updateEditorLineNumbers();
+}
+
+function removeFolds() {
+  const textarea = $('textEditor');
+  if (!textarea || !originalContent) return;
+  textarea.value = originalContent;
+  foldRanges.forEach(r => r.collapsed = false);
+  editorDirty = true;
+  updateEditorLineNumbers();
 }
 
 async function saveEditorContent(monsterIdx) {
@@ -986,6 +1077,38 @@ function initItemCtxMenu() {
     setStatus(`已添加 ${added} 个物品（旧格式 1/${defaultDen}）→ ${monName}`);
     addLog(`旧格式添加 ${added} 个物品 1/${defaultDen} → ${monName}`);
   };
+
+  // 新爆率格式
+  $('itemCtxNewFormat').onclick = async () => {
+    hideItemCtxMenu();
+    if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
+    const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
+    const items = Array.from(itemPanelSelectedItems);
+    if (items.length === 0) return setStatus('请先选择物品');
+    // 检查是否已有配置
+    try {
+      const configured = await window.go.app.App.CheckItemConfigured(itemPanelMonsterIdx);
+      const existing = items.filter(name => configured[name] === true);
+      if (existing.length > 0) {
+        const proceed = await showConfirmDialog(
+          '物品已存在',
+          `以下物品已在该怪物中配置过：\n${existing.join('、')}\n\n是否仍要添加？`
+        );
+        if (!proceed) return;
+      }
+    } catch(e) {}
+    try {
+      const childLine = `#CHILD 1/${defaultDen} RANDOM`;
+      const childBody = items.map(name => `1/1 ${name}`).join('\n');
+      const fullText = childLine + '\n(\n' + childBody + '\n)';
+      await window.go.app.App.AddRawEntry(itemPanelMonsterIdx, fullText);
+      loadEntries(itemPanelMonsterIdx);
+      renderItemPanel(itemPanelMonsterIdx);
+      const monName = monsters[itemPanelMonsterIdx]?.name || '';
+      setStatus(`已添加 ${items.length} 个物品（新格式 #CHILD 1/${defaultDen} RANDOM）→ ${monName}`);
+      addLog(`新格式添加 ${items.length} 个物品 #CHILD 1/${defaultDen} RANDOM → ${monName}`);
+    } catch(e) { setStatus('添加失败: ' + e); }
+  };
 }
 
 // ===== 地图视图（按地图查看怪物和爆率） =====
@@ -1179,22 +1302,74 @@ function renderMapViewTextEditor(content, monsterIndex) {
       <span class="editor-mon-name">📝 ${monName}</span>
       <div class="editor-actions">
         <span class="editor-status" id="mapEditorStatus"></span>
-        <button class="btn btn-sm btn-gold" id="btnMapEditorSave" title="保存文件">💾 保存</button>
+        <button class="btn btn-sm" id="btnMapToggleFold" title="折叠/展开 #CHILD 块">📁 折叠</button>
+        <button class="btn btn-sm btn-gold" id="btnMapEditorSave" title="保存文件 (Ctrl+S)">💾 保存</button>
       </div>
     </div>
-    <textarea class="text-editor" id="mapTextEditor" spellcheck="false"></textarea>
+    <div class="editor-wrap">
+      <div class="editor-lines" id="mapEditorLines"></div>
+      <textarea class="text-editor" id="mapTextEditor" spellcheck="false"></textarea>
+    </div>
   `;
   const textarea = $('mapTextEditor');
   textarea.value = content;
+
+  // 行号
+  function updateMapLines() {
+    const el = $('mapEditorLines');
+    if (!el) return;
+    const cnt = textarea.value.split('\n').length;
+    let h = ''; for (let i = 1; i <= cnt; i++) h += i + '\n';
+    el.textContent = h;
+  }
+  updateMapLines();
+  textarea.onscroll = () => {
+    const el = $('mapEditorLines');
+    if (el) el.scrollTop = textarea.scrollTop;
+  };
 
   textarea.oninput = () => {
     mapViewEditorDirty = true;
     $('mapEditorStatus').textContent = '● 未保存';
     $('mapEditorStatus').className = 'editor-status dirty';
+    updateMapLines();
   };
 
   $('btnMapEditorSave').onclick = async () => {
     await saveMapViewEditorContent(monsterIndex);
+  };
+
+  // 折叠
+  let foldEnabled = false;
+  let mapOriginal = '';
+  let mapFolds = [];
+  $('btnMapToggleFold').onclick = () => {
+    foldEnabled = !foldEnabled;
+    if (foldEnabled) {
+      mapOriginal = textarea.value;
+      const lines = textarea.value.split('\n');
+      mapFolds = [];
+      const stack = [];
+      for (let i = 0; i < lines.length; i++) {
+        const t = lines[i].trim();
+        if (/^#CHILD\b/i.test(t) || /^#CASE\b/i.test(t) || /^#IF\b/i.test(t)) stack.push(i);
+        else if (t === ')' && stack.length > 0) {
+          mapFolds.push({ s: stack.pop(), e: i });
+        }
+      }
+      const sorted = [...mapFolds].sort((a, b) => b.s - a.s);
+      for (const r of sorted) {
+        const folded = lines[r.s] + ' ... (' + lines[r.e].trim() + ')';
+        lines.splice(r.s, r.e - r.s + 1, folded);
+      }
+      textarea.value = lines.join('\n');
+      $('btnMapToggleFold').textContent = '📂 展开';
+    } else {
+      textarea.value = mapOriginal;
+      $('btnMapToggleFold').textContent = '📁 折叠';
+    }
+    mapViewEditorDirty = true;
+    updateMapLines();
   };
 
   textarea.onkeydown = (e) => {

@@ -128,21 +128,28 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 /* monster checkbox */
 .mon-cb-wrap{display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .mon-cb{accent-color:var(--accent);cursor:pointer;margin:0}
-/* entry list - text editor (notepad style) */
+/* entry list - text editor (notepad style, white bg) */
 .entry-list{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.editor-toolbar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;gap:8px}
-.editor-mon-name{font-weight:600;font-size:12px;color:var(--accent)}
+.editor-toolbar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#f0f0f0;border-bottom:1px solid #d0d0d0;flex-shrink:0;gap:8px}
+.editor-mon-name{font-weight:600;font-size:13px;color:#333}
 .editor-actions{display:flex;align-items:center;gap:8px}
 .editor-status{font-size:11px;min-width:60px;text-align:right}
-.editor-status.dirty{color:var(--accent)}
-.editor-status.saved{color:var(--success)}
-.editor-status.error{color:var(--danger)}
-.text-editor{flex:1;width:100%;background:var(--bg0);color:var(--t1);border:none;outline:none;resize:none;padding:8px 12px;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:13px;line-height:1.6;tab-size:4;overflow:auto;white-space:pre;word-wrap:normal}
-.text-editor::selection{background:rgba(212,168,67,.3)}
+.editor-status.dirty{color:#e0a000}
+.editor-status.saved{color:#2e8b57}
+.editor-status.error{color:#cc0000}
+.editor-wrap{flex:1;display:flex;overflow:hidden;position:relative}
+.editor-lines{width:50px;background:#f5f5f5;color:#999;text-align:right;padding:10px 6px 10px 0;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:15px;line-height:1.8;overflow:hidden;user-select:none;border-right:1px solid #e0e0e0;flex-shrink:0}
+.text-editor{flex:1;width:100%;background:#fff;color:#1a1a2e;border:none;outline:none;resize:none;padding:10px 14px;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:15px;line-height:1.8;tab-size:4;overflow:auto;white-space:pre;word-wrap:normal}
+.text-editor::selection{background:#b3d7ff}
 .text-editor::-webkit-scrollbar{width:8px;height:8px}
-.text-editor::-webkit-scrollbar-track{background:var(--bg1)}
-.text-editor::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
-.ecomm{color:var(--t3);font-style:italic}.ecall{color:var(--success)}.echild{color:var(--purple);font-weight:600}
+.text-editor::-webkit-scrollbar-track{background:#f5f5f5}
+.text-editor::-webkit-scrollbar-thumb{background:#ccc;border-radius:4px}
+.text-editor::-webkit-scrollbar-thumb:hover{background:#aaa}
+/* fold gutter */
+.fold-gutter{width:20px;background:#f5f5f5;border-right:1px solid #e0e0e0;flex-shrink:0;overflow:hidden;user-select:none}
+.fold-marker{height:27px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#999;cursor:pointer}
+.fold-marker:hover{color:#333;background:#e8e8e8}
+.fold-marker.has-fold{color:#6a5acd;font-weight:700}
 
 /* sim tab */
 .sim-filter{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px 16px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
