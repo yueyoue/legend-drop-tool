@@ -6,9 +6,96 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="app">
+<!-- ===== 启动设置页 ===== -->
+<div class="setup-page" id="setupPage">
+  <div class="setup-card">
+    <div class="setup-title">⚙️ 服务端设置</div>
+    <div class="setup-desc">请选择传奇服务端目录和数据库类型，配置完成后点击「开始使用」进入工具</div>
+    <div class="setup-form">
+      <div class="setup-row">
+        <label>服务端目录:</label>
+        <div class="setup-path-row">
+          <input type="text" id="setupServerPath" placeholder="选择传奇服务端根目录" />
+          <button class="btn" id="setupBrowse">📁 浏览</button>
+        </div>
+      </div>
+      <div class="setup-row">
+        <label>数据库类型:</label>
+        <select id="setupDBType">
+          <option value="BDE">BDE (Paradox .DB)</option>
+          <option value="Access">Access (.MDB)</option>
+          <option value="SQLite">SQLite (.db3)</option>
+          <option value="MYSQL">MYSQL</option>
+          <option value="SQL Server">SQL Server</option>
+          <option value="Excel">Excel (996引擎)</option>
+        </select>
+      </div>
+      <!-- 文件路径（BDE/Access/SQLite/Excel） -->
+      <div class="setup-row" id="setupFileRow">
+        <label>数据库文件:</label>
+        <div class="setup-path-row">
+          <input type="text" id="setupDBPath" placeholder="数据库文件路径" />
+          <button class="btn" id="setupDBBrowse">📁 浏览</button>
+        </div>
+      </div>
+      <!-- 连接信息（MySQL/SQL Server） -->
+      <div class="setup-conn" id="setupConnRow" style="display:none">
+        <div class="setup-row">
+          <label>服务器地址:</label>
+          <input type="text" id="setupHost" placeholder="127.0.0.1" value="127.0.0.1" />
+        </div>
+        <div class="setup-row">
+          <label>端口:</label>
+          <input type="text" id="setupPort" placeholder="3306" value="3306" />
+        </div>
+        <div class="setup-row">
+          <label>数据库名:</label>
+          <input type="text" id="setupDBName" placeholder="数据库名称" />
+        </div>
+        <div class="setup-row">
+          <label>用户名:</label>
+          <input type="text" id="setupUser" placeholder="root" />
+        </div>
+        <div class="setup-row">
+          <label>密码:</label>
+          <input type="password" id="setupPassword" placeholder="密码" />
+        </div>
+      </div>
+      <div class="setup-row">
+        <label>引擎类型:</label>
+        <select id="setupEngine">
+          <option>自动检测</option><option>HERO</option><option>GOM</option><option>GEE</option><option>BLUE</option>
+        </select>
+      </div>
+      <div class="setup-status" id="setupStatus"></div>
+      <button class="btn btn-gold btn-start" id="btnStartApp">🚀 开始使用</button>
+    </div>
+  </div>
+</div>
+
+<div class="app" id="mainApp" style="display:none">
+  <!-- ===== 爆率修改顶部导航 ===== -->
+  <div class="edit-topnav" id="editTopnav" style="display:none">
+    <div class="edit-topnav-left">
+      <span class="edit-topnav-title">📝 爆率修改</span>
+      <span class="view-toggle active" id="btnViewMonster" title="按怪物列表查看">👹 怪物列表</span>
+      <span class="view-toggle" id="btnViewMap" title="按地图查看">🗺️ 地图视图</span>
+    </div>
+    <div class="edit-topnav-actions">
+      <button class="btn btn-sm" id="btnAdd">➕ 新增</button>
+      <button class="btn btn-sm" id="btnMul">✖️ 批量倍率</button>
+      <button class="btn btn-sm" id="btnSetProb">🎯 批量概率</button>
+      <button class="btn btn-sm" id="btnAnomaly">⚠️ 异常检测</button>
+      <div class="sep"></div>
+      <button class="btn btn-sm" id="btnBackup">💾 备份</button>
+      <button class="btn btn-sm" id="btnBackupAll">📦 全量备份</button>
+      <div class="sep"></div>
+      <button class="btn btn-sm btn-gold" id="btnSave">💾 保存</button>
+    </div>
+  </div>
+
   <!-- ===== 顶栏 ===== -->
-  <div class="toolbar">
+  <div class="toolbar" id="mainToolbar">
     <div class="toolbar-row">
       <label>服务端目录:</label>
       <input type="text" id="serverPath" placeholder="选择传奇服务端根目录" />
@@ -44,22 +131,18 @@
       <div class="tab-content">
         <!-- ===== 爆率修改 ===== -->
         <div class="tab-pane active" id="pane-edit">
-          <div class="edit-toolbar">
-            <span class="view-toggle active" id="btnViewMonster" title="按怪物列表查看">👹 怪物列表</span>
-            <span class="view-toggle" id="btnViewMap" title="按地图查看">🗺️ 地图视图</span>
-            <div class="sep"></div>
-            <button class="btn btn-sm" id="btnAdd">➕ 新增</button>
-            <button class="btn btn-sm" id="btnMul">✖️ 批量倍率</button>
-            <button class="btn btn-sm" id="btnSetProb">🎯 批量概率</button>
-            <button class="btn btn-sm" id="btnAnomaly">⚠️ 异常检测</button>
-            <div class="sep"></div>
-            <button class="btn btn-sm" id="btnBackup">💾 备份文件</button>
-            <button class="btn btn-sm" id="btnBackupAll">📦 备份目录</button>
-            <div style="flex:1"></div>
-            <button class="btn btn-sm btn-gold" id="btnSave">💾 保存</button>
+          <!-- 普通模式：怪物列表 + 条目 + 物品面板 -->
+          <div class="edit-main-area" id="editMainArea">
+            <div class="entry-list" id="entryList"></div>
+            <div class="item-panel" id="itemPanel" style="display:none">
+              <div class="item-panel-hdr">
+                <span>📦 物品列表</span>
+                <span class="badge" id="itemPanelCount"></span>
+              </div>
+              <div class="item-panel-search"><input type="text" id="itemPanelSearch" placeholder="搜索物品..." /></div>
+              <div class="item-panel-body" id="itemPanelBody"></div>
+            </div>
           </div>
-          <!-- 普通模式：怪物列表 + 条目 -->
-          <div class="entry-list" id="entryList"></div>
           <!-- 地图视图模式 -->
           <div class="mapview-container" id="mapViewContainer" style="display:none">
             <div class="mapview-col">
@@ -239,7 +322,7 @@
   <!-- ===== 状态栏 ===== -->
   <div class="statusbar">
     <span id="statusText">就绪 - 请选择传奇服务端目录</span>
-    <span class="version">v2.3.0</span>
+    <span class="version">v3.0.0</span>
   </div>
 </div>
 

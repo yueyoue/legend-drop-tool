@@ -14,6 +14,7 @@ import (
 	"github.com/yueyoue/legend-drop-tool/pkg/editor"
 	"github.com/yueyoue/legend-drop-tool/pkg/parser"
 	"github.com/yueyoue/legend-drop-tool/pkg/simulator"
+	"github.com/yueyoue/legend-drop-tool/pkg/db"
 	"github.com/yueyoue/legend-drop-tool/pkg/tuner"
 )
 
@@ -36,6 +37,9 @@ type App struct {
 	selectedMonsters []string
 	selectedItems    []string
 	selectedMaps     []string
+
+	dbReader       db.Reader     // 数据库读取器
+	dbItems        []db.ItemInfo  // 数据库物品列表
 
 	// 模拟结果
 	simMultiResult *simulator.MultiSimResult
@@ -683,6 +687,83 @@ func (a *App) GetAllMapNames() []string {
 
 	sort.Strings(names)
 	return names
+}
+
+// ============================================================
+// 数据库连接与物品读取
+// ============================================================
+
+// ConnectDB 连接数据库并读取物品列表
+func (a *App) ConnectDB(cfg db.DBConfig) (int, error) {
+	// 关闭旧连接
+	if a.dbReader != nil {
+		a.dbReader.Close()
+		a.dbReader = nil
+		a.dbItems = nil
+	}
+
+	reader, err := db.NewReader(cfg)
+	if err != nil {
+		return 0, fmt.Errorf("连接数据库失败: %w", err)
+	}
+
+	items, err := reader.ReadItems()
+	if err != nil {
+		reader.Close()
+		return 0, fmt.Errorf("读取物品列表失败: %w", err)
+	}
+
+	a.dbReader = reader
+	a.dbItems = items
+	return len(items), nil
+}
+
+// GetDBItems 获取数据库物品列表（供前端显示）
+func (a *App) GetDBItems() []db.ItemInfo {
+	return a.dbItems
+}
+
+// QuickAddItem 快速为怪物添加物品爆率
+// monsterIndex: currentResults 索引
+// itemName: 物品名称
+// num, den: 爆率分子/分母
+// quantity: 掉落数量
+func (a *App) QuickAddItem(monsterIndex int, itemName string, num, den, quantity int) error {
+	if a.currentResults == nil || monsterIndex < 0 || monsterIndex >= len(a.currentResults) {
+		return fmt.Errorf("无效的怪物索引")
+	}
+	if itemName == "" {
+		return fmt.Errorf("物品名称不能为空")
+	}
+	if den <= 0 {
+		den = 100
+	}
+	if num <= 0 {
+		num = 1
+	}
+	if quantity <= 0 {
+		quantity = 1
+	}
+
+	file := a.currentResults[monsterIndex].File
+	a.editor.AddEntry(file, itemName, num, den, quantity)
+	return nil
+}
+
+// CheckItemConfigured 检查物品是否已在指定怪物中配置
+// 返回该怪物中配置了此物品的所有条目索引列表
+func (a *App) CheckItemConfigured(monsterIndex int) map[string]bool {
+	result := make(map[string]bool)
+	if a.currentResults == nil || monsterIndex < 0 || monsterIndex >= len(a.currentResults) {
+		return result
+	}
+	file := a.currentResults[monsterIndex].File
+	for _, e := range file.Entries {
+		if e.IsEditable() && e.ItemName != "" {
+			result[e.ItemName] = true
+		}
+	}
+	return result
 }
 
 // ============================================================

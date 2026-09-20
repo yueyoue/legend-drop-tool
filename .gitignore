@@ -28,3 +28,4 @@ config.json
 build/bin/
 node_modules/
 frontend/node_modules/
+.openclaw/

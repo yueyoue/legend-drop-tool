@@ -36,19 +36,137 @@ window.addEventListener('DOMContentLoaded', async () => {
   try {
     await waitForWailsReady();
   } catch(e) {
-    setStatus('错误: ' + e.message + ' — 请确认使用最新版 exe');
+    document.getElementById('setupStatus').textContent = '错误: ' + e.message + ' — 请确认使用最新版 exe';
     return;
   }
+  initSetupPage();
+});
+
+// 启动设置页
+function initSetupPage() {
+  const dbTypeSelect = $('setupDBType');
+  // 数据库类型切换
+  dbTypeSelect.onchange = () => {
+    const t = dbTypeSelect.value;
+    const isFile = ['BDE','Access','SQLite','Excel'].includes(t);
+    $('setupFileRow').style.display = isFile ? '' : 'none';
+    $('setupConnRow').style.display = isFile ? 'none' : '';
+    // 默认端口
+    if (t === 'MYSQL') $('setupPort').value = '3306';
+    if (t === 'SQL Server') $('setupPort').value = '1433';
+    // 默认路径提示
+    const pathHints = {
+      'BDE': '\\MirServer\\DBServer\\FilId.DB',
+      'Access': '\\MirServer\\DBServer\\Mir.DB.MDB',
+      'SQLite': '\\MirServer\\DBServer\\Mir.DB.db3',
+      'Excel': '\\Mir200\\Envir\\Data\\cfg_equip.xls'
+    };
+    $('setupDBPath').placeholder = pathHints[t] || '数据库文件路径';
+  };
+  dbTypeSelect.onchange();
+
+  // 浏览按钮
+  $('setupBrowse').onclick = async () => {
+    try {
+      const result = await window.go.app.App.SelectDirectory();
+      if (result) {
+        $('setupServerPath').value = result;
+        // 自动填充数据库路径
+        const t = dbTypeSelect.value;
+        const autoPaths = {
+          'BDE': '\\DBServer\\FilId.DB',
+          'Access': '\\DBServer\\Mir.DB.MDB',
+          'SQLite': '\\DBServer\\Mir.DB.db3',
+          'Excel': '\\Mir200\\Envir\\Data\\cfg_equip.xls'
+        };
+        if (autoPaths[t]) {
+          $('setupDBPath').value = result + autoPaths[t];
+        }
+      }
+    } catch(e) {}
+  };
+  $('setupDBBrowse').onclick = async () => {
+    try {
+      const t = dbTypeSelect.value;
+      let result;
+      if (t === 'Excel') {
+        result = await window.go.app.App.SelectFile('Excel 文件 (*.xls;*.xlsx)|*.xls;*.xlsx');
+      } else {
+        result = await window.go.app.App.SelectFile();
+      }
+      if (result) $('setupDBPath').value = result;
+    } catch(e) {}
+  };
+
+  // 开始使用
+  $('btnStartApp').onclick = async () => {
+    const serverPath = $('setupServerPath').value;
+    if (!serverPath) { $('setupStatus').textContent = '请选择服务端目录'; return; }
+
+    const dbType = dbTypeSelect.value;
+    const isFile = ['BDE','Access','SQLite','Excel'].includes(dbType);
+
+    // 设置服务端路径
+    await window.go.app.App.SetServerPath(serverPath);
+
+    // 加载爆率文件
+    $('setupStatus').textContent = '正在加载爆率文件...';
+    try {
+      const result = await window.go.app.App.LoadFiles(serverPath);
+      monsters = result.monsters;
+    } catch(e) {
+      $('setupStatus').textContent = '加载爆率文件失败: ' + e;
+      return;
+    }
+
+    // 连接数据库
+    $('setupStatus').textContent = '正在连接数据库...';
+    try {
+      const dbCfg = {
+        type: dbType,
+        filePath: isFile ? $('setupDBPath').value : '',
+        host: $('setupHost').value,
+        port: parseInt($('setupPort').value) || 0,
+        dbName: $('setupDBName').value,
+        user: $('setupUser').value,
+        password: $('setupPassword').value
+      };
+      const count = await window.go.app.App.ConnectDB(dbCfg);
+      $('setupStatus').textContent = `已读取 ${count} 个物品`;
+    } catch(e) {
+      $('setupStatus').textContent = '数据库连接失败: ' + e;
+      return;
+    }
+
+    // 设置引擎
+    const engine = $('setupEngine').value;
+    if (engine !== '自动检测') {
+      await window.go.app.App.SetEngine(engine);
+    }
+
+    // 进入主界面
+    $('setupPage').style.display = 'none';
+    $('mainApp').style.display = '';
+    initMainApp();
+  };
+}
+
+function initMainApp() {
   initTabs();
   initToolbar();
   initEditTab();
   initMapViewSearch();
+  initItemPanelSearch();
   initCtxMenu();
   initSimTab();
   initTuneTab();
   initAuthTab();
-  loadConfig();
-});
+  renderMonsterList();
+  refreshTuneItemList();
+  loadItemPanel();
+  $('editTopnav').style.display = '';
+  setStatus(`已加载 ${monsters.length} 个怪物文件`);
+}
 
 // ===== 配置加载 =====
 async function loadConfig() {
@@ -68,7 +186,9 @@ function initTabs() {
       $$('.tab-pane').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       $('pane-' + tab.dataset.tab).classList.add('active');
-      $('sidebar').style.display = tab.dataset.tab === 'edit' ? 'flex' : 'none';
+      const isEdit = tab.dataset.tab === 'edit';
+      $('sidebar').style.display = isEdit ? 'flex' : 'none';
+      $('editTopnav').style.display = isEdit ? '' : 'none';
     });
   });
 }
@@ -88,6 +208,11 @@ function initToolbar() {
       console.error('Browse error:', e);
       setStatus('浏览失败: ' + e);
     }
+  };
+
+  // 引擎切换
+  $('engineSelect').onchange = () => {
+    window.go.app.App.SetEngine($('engineSelect').value);
   };
 
   $('btnDetect').onclick = async () => {
@@ -137,6 +262,8 @@ async function selectMonster(idx) {
   currentMonsterIdx = idx;
   $$('.mon-item').forEach((el, i) => el.classList.toggle('active', i === idx));
   await loadEntries(idx);
+  // 同步更新物品面板
+  if (dbItems.length > 0) renderItemPanel(idx);
 }
 
 async function loadEntries(idx) {
@@ -177,42 +304,36 @@ function renderEntries(entries) {
 
 // ===== 爆率修改 =====
 function initEditTab() {
-  // 地图视图/怪物列表切换
-  $('btnViewMonster').onclick = () => {
+  // 地图视图/怪物列表切换（顶部导航栏按钮）
+  const btnVM = $('btnViewMonster');
+  const btnVM2 = document.getElementById('btnViewMonster2');
+  const btnVMap = $('btnViewMap');
+  const btnVMap2 = document.getElementById('btnViewMap2');
+
+  function switchToMonsterView() {
     if (!mapViewMode) return;
     mapViewMode = false;
-    $('btnViewMonster').classList.add('active');
-    $('btnViewMap').classList.remove('active');
+    document.querySelectorAll('.view-toggle').forEach(b => b.classList.remove('active'));
+    if (btnVM) btnVM.classList.add('active');
+    if (btnVM2) btnVM2.classList.add('active');
     $('sidebar').style.display = 'flex';
-    $('entryList').style.display = '';
+    $('editMainArea').style.display = '';
     $('mapViewContainer').style.display = 'none';
-    // 恢复编辑按钮
-    $('btnAdd').style.display = '';
-    $('btnMul').style.display = '';
-    $('btnSetProb').style.display = '';
-    $('btnAnomaly').style.display = '';
-    $('btnBackup').style.display = '';
-    $('btnBackupAll').style.display = '';
-    $('btnSave').style.display = '';
-  };
-  $('btnViewMap').onclick = () => {
+  }
+  function switchToMapView() {
     if (mapViewMode) return;
     mapViewMode = true;
-    $('btnViewMap').classList.add('active');
-    $('btnViewMonster').classList.remove('active');
+    document.querySelectorAll('.view-toggle').forEach(b => b.classList.remove('active'));
+    if (btnVMap) btnVMap.classList.add('active');
+    if (btnVMap2) btnVMap2.classList.add('active');
     $('sidebar').style.display = 'none';
-    $('entryList').style.display = 'none';
+    $('editMainArea').style.display = 'none';
     $('mapViewContainer').style.display = 'flex';
-    // 隐藏仅普通模式用的按钮
-    $('btnAdd').style.display = 'none';
-    $('btnMul').style.display = 'none';
-    $('btnSetProb').style.display = 'none';
-    $('btnAnomaly').style.display = 'none';
-    $('btnBackup').style.display = 'none';
-    $('btnBackupAll').style.display = 'none';
-    $('btnSave').style.display = 'none';
     loadMapView();
-  };
+  }
+
+  if (btnVM) btnVM.onclick = switchToMonsterView;
+  if (btnVMap) btnVMap.onclick = switchToMapView;
 
   $('btnAdd').onclick = () => {
     if (currentMonsterIdx < 0) return setStatus('请先选择怪物');
@@ -645,6 +766,83 @@ function updateFilterBadges() {
   $('monsterCount').textContent = `(${filterMonsters.length})`;
   $('itemCount').textContent = `(${filterItems.length})`;
   $('mapCount').textContent = `(${filterMaps.length})`;
+}
+
+// ===== 物品面板（数据库物品列表） =====
+let dbItems = []; // 缓存数据库物品
+let itemPanelMonsterIdx = -1; // 当前物品面板关联的怪物索引
+
+async function loadItemPanel() {
+  try {
+    dbItems = await window.go.app.App.GetDBItems() || [];
+    $('itemPanel').style.display = '';
+    renderItemPanel(-1);
+  } catch(e) {
+    console.log('loadItemPanel:', e);
+  }
+}
+
+async function renderItemPanel(monsterIdx) {
+  itemPanelMonsterIdx = monsterIdx;
+  const body = $('itemPanelBody');
+  const configured = {};
+
+  if (monsterIdx >= 0) {
+    try {
+      const cfg = await window.go.app.App.CheckItemConfigured(monsterIdx);
+      Object.assign(configured, cfg);
+    } catch(e) {}
+  }
+
+  const query = ($('itemPanelSearch').value || '').toLowerCase();
+  let html = '';
+  let count = 0;
+  dbItems.forEach(item => {
+    if (query && !item.Name.toLowerCase().includes(query)) return;
+    const isConfigured = configured[item.Name] === true;
+    const cls = isConfigured ? 'configured' : 'unconfigured';
+    const check = isConfigured ? '✓' : '';
+    html += `<div class="ip-item ${cls}" data-name="${item.Name}"><span class="ip-check">${check}</span><span class="ip-name" title="${item.Name}">${item.Name}</span></div>`;
+    count++;
+  });
+  body.innerHTML = html;
+  $('itemPanelCount').textContent = `(${count})`;
+
+  // 点击物品 → 快速添加爆率
+  body.querySelectorAll('.ip-item').forEach(el => {
+    el.onclick = async () => {
+      const itemName = el.dataset.name;
+      if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
+      const monName = monsters[itemPanelMonsterIdx]?.name || '';
+      showQuickAddDialog(itemPanelMonsterIdx, itemName, monName);
+    };
+  });
+}
+
+function showQuickAddDialog(monsterIdx, itemName, monsterName) {
+  showModal('快速添加爆率', `
+    <div class="form-row"><label>怪物:</label><span style="color:#5b9df0">${monsterName}</span></div>
+    <div class="form-row"><label>物品:</label><span style="color:#4ecb71">${itemName}</span></div>
+    <div class="form-row"><label>概率分子:</label><input type="text" id="mNum" value="1" /></div>
+    <div class="form-row"><label>概率分母:</label><input type="text" id="mDen" value="100" /></div>
+    <div class="form-row"><label>掉落数量:</label><input type="text" id="mQty" value="1" /></div>
+  `, [
+    {text:'添加',cls:'btn-gold',action:async()=>{
+      const num=+$('mNum').value,den=+$('mDen').value,qty=+$('mQty').value;
+      if(den<=0||qty<=0) return setStatus('请输入有效正整数');
+      await window.go.app.App.QuickAddItem(monsterIdx, itemName, num, den, qty);
+      hideModal();
+      loadEntries(monsterIdx);
+      renderItemPanel(monsterIdx);
+      addLog(`快速添加: ${itemName} → ${monsters[monsterIdx]?.name} ${num}/${den} x${qty}`);
+    }},
+    {text:'取消',cls:'',action:hideModal}
+  ]);
+}
+
+// 物品面板搜索
+function initItemPanelSearch() {
+  $('itemPanelSearch').oninput = () => renderItemPanel(itemPanelMonsterIdx);
 }
 
 // ===== 地图视图（按地图查看怪物和爆率） =====
