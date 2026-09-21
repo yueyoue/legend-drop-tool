@@ -157,18 +157,18 @@ function initSetupPage() {
 
 function initMainApp() {
   initTabs();
-  initToolbar();
   initEditTab();
   initMapViewSearch();
   initItemPanelSearch();
   initCtxMenu();
+  initItemCtxMenu();
   initSimTab();
   initTuneTab();
   initAuthTab();
   renderMonsterList();
   refreshTuneItemList();
   loadItemPanel();
-  $('editTopnav').style.display = '';
+  $('subNav').classList.remove('hidden');
   // 切换服务端按钮
   const btnSwitch = document.getElementById('btnSwitchServer');
   if (btnSwitch) {
@@ -186,77 +186,33 @@ async function loadConfig() {
   try {
     const cfg = await window.go.app.App.GetConfig();
     if (cfg && cfg.server_root) {
-      $('serverPath').value = cfg.server_root;
+      // 服务端路径现在在启动设置页设置
     }
   } catch(e) { console.log('loadConfig:', e); }
 }
 
 // ===== Tab 切换 =====
 function initTabs() {
-  $$('.tab').forEach(tab => {
+  $$('.top-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      $$('.tab').forEach(t => t.classList.remove('active'));
+      $$('.top-tab').forEach(t => t.classList.remove('active'));
       $$('.tab-pane').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       $('pane-' + tab.dataset.tab).classList.add('active');
       const isEdit = tab.dataset.tab === 'edit';
       $('sidebar').style.display = isEdit ? 'flex' : 'none';
-      $('editTopnav').style.display = isEdit ? '' : 'none';
+      $('subNav').style.display = isEdit ? '' : 'none';
+      // 地图视图时隐藏物品面板
+      if (!isEdit || mapViewMode) {
+        if ($('itemPanel')) $('itemPanel').style.display = 'none';
+      } else if (isEdit && !mapViewMode && dbItems.length > 0) {
+        if ($('itemPanel')) $('itemPanel').style.display = '';
+      }
     });
   });
 }
 
-// ===== 工具栏 =====
-function initToolbar() {
-  // 浏览按钮 - 通过 Go 后端打开系统目录选择对话框
-  $('btnBrowse').onclick = async () => {
-    try {
-      const result = await window.go.app.App.SelectDirectory();
-      if (result) {
-        $('serverPath').value = result;
-        await window.go.app.App.SetServerPath(result);
-        setStatus('已选择目录: ' + result);
-      }
-    } catch(e) {
-      console.error('Browse error:', e);
-      setStatus('浏览失败: ' + e);
-    }
-  };
-
-  // 引擎切换
-  $('engineSelect').onchange = () => {
-    window.go.app.App.SetEngine($('engineSelect').value);
-  };
-
-  $('btnDetect').onclick = async () => {
-    const path = $('serverPath').value;
-    if (!path) return setStatus('请先输入服务端目录');
-    const engine = await window.go.app.App.DetectEngine(path);
-    $('engineSelect').value = engine;
-    setStatus('检测到引擎: ' + engine);
-  };
-
-  $('btnLoad').onclick = async () => {
-    const path = $('serverPath').value;
-    if (!path) return setStatus('请选择服务端目录');
-    try {
-      showLoading('正在加载爆率文件，请稍候...');
-      const result = await window.go.app.App.LoadFiles(path);
-      monsters = result.monsters;
-      renderMonsterList();
-      refreshTuneItemList();
-      setStatus(`已加载 ${result.totalFiles} 个怪物文件，共 ${result.totalEntries} 条掉落配置 | 引擎: ${result.engine}`);
-      if (result.warnings && result.warnings.length > 0) {
-        showModal('解析提示', `<div style="max-height:400px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre">${result.warnings.join('\n')}</div>`, [{text:'确定',cls:'btn-gold',action:hideModal}]);
-      }
-    } catch(e) { setStatus('错误: ' + e); }
-    finally { hideLoading(); }
-  };
-
-  $('engineSelect').onchange = () => {
-    window.go.app.App.SetEngine($('engineSelect').value);
-  };
-}
+// ===== 工具栏（已移除，服务端目录和引擎在启动设置页选择） =====
 
 // ===== 怪物列表 =====
 function renderMonsterList() {
@@ -279,82 +235,317 @@ async function selectMonster(idx) {
   if (dbItems.length > 0) renderItemPanel(idx);
 }
 
+// 文本编辑器相关状态
+let editorDirty = false;
+let editorDebounceTimer = null;
+
 async function loadEntries(idx) {
   try {
-    const entries = await window.go.app.App.GetEntries(idx);
-    renderEntries(entries);
+    // 只在切换到不同怪物时才检查未保存的修改
+    if (editorDirty && currentMonsterIdx >= 0 && currentMonsterIdx !== idx) {
+      const curName = monsters[currentMonsterIdx]?.name || '';
+      const proceed = await showConfirmDialog(
+        '未保存的修改',
+        `怪物「${curName}」有未保存的修改，是否保存？`
+      );
+      if (proceed) {
+        await saveEditorContent(currentMonsterIdx);
+      }
+    }
+    const rawContent = await window.go.app.App.GetRawContent(idx);
+    renderTextEditor(rawContent, idx);
   } catch(e) { setStatus('错误: ' + e); }
 }
 
-function renderEntries(entries) {
+// ============================================================
+// 编辑器 - 带行号、#CHILD折叠(+/-)、方括号列
+// ============================================================
+
+function renderTextEditor(content, monsterIdx) {
   const list = $('entryList');
-  list.innerHTML = '';
-  if (!entries) return;
+  const monName = monsters[monsterIdx]?.name || '';
+  list.innerHTML = `
+    <div class="editor-toolbar">
+      <span class="editor-mon-name">📝 ${monName}</span>
+      <div class="editor-actions">
+        <span class="editor-status" id="editorStatus"></span>
+        <button class="btn btn-sm" id="btnEditorUndo" title="撤销">↩️</button>
+        <button class="btn btn-sm" id="btnFoldAll" title="折叠全部 #CHILD">📁 全部折叠</button>
+        <button class="btn btn-sm" id="btnUnfoldAll" title="展开全部">📂 全部展开</button>
+        <button class="btn btn-sm btn-gold" id="btnEditorSave" title="保存文件 (Ctrl+S)">💾 保存</button>
+      </div>
+    </div>
+    <div class="editor-wrap">
+      <div class="editor-lines" id="editorLines"></div>
+      <div class="fold-gutter" id="foldGutter"></div>
+      <div class="bracket-col" id="bracketCol"></div>
+      <textarea class="text-editor" id="textEditor" spellcheck="false"></textarea>
+    </div>
+  `;
+  const textarea = $('textEditor');
+  textarea.value = content;
+  editorDirty = false;
 
-  // 构建代码编辑器风格的 HTML
-  let html = '<div class="code-editor">';
-  let lineNum = 0;
-  let inChild = false;
-  let childDepth = 0;
-  let childHtml = '';
+  // 初始化
+  rebuildEditorUI();
 
-  entries.forEach((e, i) => {
-    lineNum++;
-    const indent = '  '.repeat(e.depth);
-    let cls = '', text = '';
+  // 滚动同步
+  textarea.onscroll = () => {
+    syncEditorScroll();
+  };
 
-    if (e.isComment) {
-      cls = 'ecomm';
-      text = escapeHtml(e.rawLine);
-    } else if (e.isCallRef) {
-      cls = 'ecall';
-      text = `#CALL [${escapeHtml(e.callPath)}]` + (e.callLabel ? ' ' + escapeHtml(e.callLabel) : '');
-    } else if (e.isChildStart) {
-      cls = 'echild';
-      const rnd = e.childRandom ? ' RANDOM' : '';
-      text = `#CHILD ${e.childProb}${rnd}`;
-      // 开始折叠块
-      html += `<details class="code-fold" open><summary class="code-line ${cls}" data-idx="${i}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}${text}</span></summary>`;
-      return;
-    } else if (e.isChildEnd) {
-      html += '</details>';
-      return;
-    } else if (e.isCaseStart) {
-      cls = 'ecase';
-      text = `#CASE ${escapeHtml(e.caseExpr)}`;
-      html += `<details class="code-fold" open><summary class="code-line ${cls}" data-idx="${i}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}${text}</span></summary>`;
-      return;
-    } else if (e.isIfStart) {
-      cls = 'eif';
-      text = `#IF ${escapeHtml(e.caseExpr)}`;
-      html += `<details class="code-fold" open><summary class="code-line ${cls}" data-idx="${i}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}${text}</span></summary>`;
-      return;
-    } else if (e.isEditable) {
-      cls = 'eitem';
-      const trig = e.hasTrigger ? ` <span class="trig">|${escapeHtml(e.triggerName)}</span>` : '';
-      text = `<span class="prob">${e.probStr}</span> <span class="iname">${escapeHtml(e.itemName)}</span>${trig} <span class="qty">x${e.quantity}</span>`;
-      html += `<div class="code-line ${cls}" data-idx="${i}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}${text}</span></div>`;
-      return;
-    } else {
-      text = escapeHtml(e.rawLine);
+  // 输入事件
+  textarea.oninput = () => {
+    editorDirty = true;
+    $('editorStatus').textContent = '● 未保存';
+    $('editorStatus').className = 'editor-status dirty';
+    // 重新检测折叠块（内容变了可能结构也变了）
+    rebuildEditorUI();
+  };
+
+  // 保存
+  $('btnEditorSave').onclick = async () => {
+    await saveEditorContent(monsterIdx);
+  };
+
+  // 撤销
+  $('btnEditorUndo').onclick = () => {
+    document.execCommand('undo');
+    textarea.focus();
+  };
+
+  // 全部折叠
+  $('btnFoldAll').onclick = () => {
+    foldAllBlocks(true);
+  };
+
+  // 全部展开
+  $('btnUnfoldAll').onclick = () => {
+    unfoldAllBlocks();
+  };
+
+  // Ctrl+S
+  textarea.onkeydown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveEditorContent(monsterIdx);
     }
-    html += `<div class="code-line ${cls}" data-idx="${i}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}${text}</span></div>`;
-  });
-  html += '</div>';
-  list.innerHTML = html;
+  };
 
-  // 可编辑行点击 → 弹出编辑对话框
-  list.querySelectorAll('.code-line.eitem').forEach(el => {
-    el.onclick = () => {
-      const idx = parseInt(el.dataset.idx);
-      if (entries[idx] && entries[idx].isEditable) showEditDialog(idx, entries[idx]);
+  textarea.focus();
+}
+
+// ---- 编辑器状态 ----
+let editorFoldState = { originalContent: '', blocks: [] };
+// blocks: [{startLine, endLine, collapsed}]
+
+function rebuildEditorUI() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  const lines = textarea.value.split('\n');
+  detectFoldBlocks(lines);
+  renderLineNumbers(lines.length);
+  renderFoldGutter(lines.length);
+  renderBracketCol(lines.length);
+  syncEditorScroll();
+}
+
+function detectFoldBlocks(lines) {
+  const blocks = [];
+  const stack = [];
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^#CHILD\b/i.test(t) || /^#CASE\b/i.test(t) || /^#IF\b/i.test(t)) {
+      stack.push(i);
+    } else if (t === ')' && stack.length > 0) {
+      const s = stack.pop();
+      blocks.push({ startLine: s, endLine: i, collapsed: false });
+    }
+  }
+  // 保留之前的折叠状态
+  const oldBlocks = editorFoldState.blocks;
+  for (const nb of blocks) {
+    const ob = oldBlocks.find(o => o.startLine === nb.startLine && o.endLine === nb.endLine);
+    if (ob && ob.collapsed) nb.collapsed = true;
+  }
+  editorFoldState.blocks = blocks;
+}
+
+function renderLineNumbers(lineCount) {
+  const el = $('editorLines');
+  if (!el) return;
+  let html = '';
+  for (let i = 1; i <= lineCount; i++) html += i + '<br>';
+  el.innerHTML = html;
+}
+
+function renderFoldGutter(lineCount) {
+  const el = $('foldGutter');
+  if (!el) return;
+  const blocks = editorFoldState.blocks;
+  // 哪些行有折叠按钮
+  const blockMap = {};
+  blocks.forEach(b => { blockMap[b.startLine] = b; });
+  let html = '';
+  for (let i = 0; i < lineCount; i++) {
+    if (blockMap[i]) {
+      const cls = blockMap[i].collapsed ? 'collapsed' : 'expanded';
+      html += `<div class="fold-row"><span class="fold-btn ${cls}" data-line="${i}"></span></div>`;
+    } else {
+      html += '<div class="fold-row"></div>';
+    }
+  }
+  el.innerHTML = html;
+  // 绑定点击
+  el.querySelectorAll('.fold-btn').forEach(btn => {
+    btn.onclick = () => {
+      const line = parseInt(btn.dataset.line);
+      toggleFoldBlock(line);
     };
   });
 }
 
-function escapeHtml(s) {
-  if (!s) return '';
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function renderBracketCol(lineCount) {
+  const el = $('bracketCol');
+  if (!el) return;
+  const blocks = editorFoldState.blocks;
+  // 标记每行属于哪个块的哪个位置
+  const lineRole = {}; // lineNum -> 'start'|'mid'|'end'
+  blocks.forEach(b => {
+    if (b.collapsed) return; // 折叠的不画括号
+    if (b.endLine - b.startLine < 2) return; // 太短不画
+    lineRole[b.startLine] = 'start';
+    lineRole[b.endLine] = 'end';
+    for (let i = b.startLine + 1; i < b.endLine; i++) {
+      if (!lineRole[i]) lineRole[i] = 'mid';
+    }
+  });
+  let html = '';
+  for (let i = 0; i < lineCount; i++) {
+    const role = lineRole[i];
+    if (role === 'start') {
+      html += '<div class="bracket-line bk-top"><span class="bracket-char">[</span></div>';
+    } else if (role === 'end') {
+      html += '<div class="bracket-line bk-bot"><span class="bracket-char">]</span></div>';
+    } else if (role === 'mid') {
+      html += '<div class="bracket-line bk-mid"></div>';
+    } else {
+      html += '<div class="bracket-line"></div>';
+    }
+  }
+  el.innerHTML = html;
+}
+
+function syncEditorScroll() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  const top = textarea.scrollTop;
+  const left = textarea.scrollLeft;
+  ['editorLines', 'foldGutter', 'bracketCol'].forEach(id => {
+    const el = $(id);
+    if (el) el.scrollTop = top;
+  });
+}
+
+function toggleFoldBlock(line) {
+  const block = editorFoldState.blocks.find(b => b.startLine === line);
+  if (!block) return;
+  const textarea = $('textEditor');
+  if (!textarea) return;
+
+  if (block.collapsed) {
+    // 展开：恢复原始内容
+    unfoldAllBlocks();
+  } else {
+    // 折叠这个块
+    foldBlock(block);
+  }
+}
+
+function foldBlock(block) {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  // 保存原始内容
+  if (!editorFoldState.originalContent) {
+    editorFoldState.originalContent = textarea.value;
+  }
+  const lines = textarea.value.split('\n');
+  // 构建折叠行：#CHILD 1/100 RANDOM [...] )
+  const headerLine = lines[block.startLine];
+  const closeLine = lines[block.endLine] || ')';
+  const innerCount = block.endLine - block.startLine - 1;
+  const foldedLine = headerLine + `  [... ${innerCount} 行折叠 ...]  ` + closeLine.trim();
+  const newLines = [
+    ...lines.slice(0, block.startLine),
+    foldedLine,
+    ...lines.slice(block.endLine + 1)
+  ];
+  textarea.value = newLines.join('\n');
+  block.collapsed = true;
+  block._startLine = block.startLine;
+  block._endLine = block.endLine;
+  editorDirty = true;
+  rebuildEditorUI();
+}
+
+function unfoldAllBlocks() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  if (editorFoldState.originalContent) {
+    textarea.value = editorFoldState.originalContent;
+    editorFoldState.originalContent = '';
+    editorDirty = true;
+  }
+  editorFoldState.blocks.forEach(b => b.collapsed = false);
+  rebuildEditorUI();
+}
+
+function foldAllBlocks() {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  if (!editorFoldState.originalContent) {
+    editorFoldState.originalContent = textarea.value;
+  }
+  // 逐个折叠（从后往前）
+  const sorted = [...editorFoldState.blocks].sort((a, b) => b.startLine - a.startLine);
+  for (const block of sorted) {
+    if (!block.collapsed) {
+      const lines = textarea.value.split('\n');
+      const headerLine = lines[block.startLine];
+      const closeLine = lines[block.endLine] || ')';
+      const innerCount = block.endLine - block.startLine - 1;
+      const foldedLine = headerLine + `  [... ${innerCount} 行折叠 ...]  ` + closeLine.trim();
+      const newLines = [
+        ...lines.slice(0, block.startLine),
+        foldedLine,
+        ...lines.slice(block.endLine + 1)
+      ];
+      textarea.value = newLines.join('\n');
+      block.collapsed = true;
+    }
+  }
+  editorDirty = true;
+  rebuildEditorUI();
+}
+
+async function saveEditorContent(monsterIdx) {
+  const textarea = $('textEditor');
+  if (!textarea) return;
+  const content = textarea.value;
+  try {
+    await window.go.app.App.SaveRawContent(monsterIdx, content);
+    editorDirty = false;
+    $('editorStatus').textContent = '✓ 已保存';
+    $('editorStatus').className = 'editor-status saved';
+    setStatus(`已保存: ${monsters[monsterIdx]?.name || ''}`);
+    addLog(`保存文件: ${monsters[monsterIdx]?.name || ''}`);
+    // 刷新物品面板
+    if (dbItems.length > 0) renderItemPanel(monsterIdx);
+  } catch(e) {
+    $('editorStatus').textContent = '✕ 保存失败';
+    $('editorStatus').className = 'editor-status error';
+    setStatus('保存失败: ' + e);
+  }
 }
 
 // ===== 爆率修改 =====
@@ -374,11 +565,6 @@ function initEditTab() {
     $('sidebar').style.display = 'flex';
     $('editMainArea').style.display = '';
     $('mapViewContainer').style.display = 'none';
-    // 恢复物品面板
-    if (dbItems.length > 0) {
-      $('itemPanel').style.display = '';
-      renderItemPanel(currentMonsterIdx);
-    }
   }
   function switchToMapView() {
     if (mapViewMode) return;
@@ -474,6 +660,7 @@ function initEditTab() {
   };
 }
 
+// showEditDialog 已替换为内联编辑，保留此函数供地图视图使用
 function showEditDialog(idx, entry) {
   showModal('修改掉落配置', `
     <div class="form-row"><label>物品名称:</label><span style="color:#5b9df0">${entry.itemName}</span></div>
@@ -636,7 +823,7 @@ function renderCol(bodyId, headers, rows, type, simData, dataNames) {
         if (idx >= 0) {
           $$('.tab').forEach(t => t.classList.remove('active'));
           $$('.tab-pane').forEach(p => p.classList.remove('active'));
-          document.querySelector('.tab[data-tab="edit"]').classList.add('active');
+          document.querySelector('.top-tab[data-tab="edit"]').classList.add('active');
           $('pane-edit').classList.add('active');
           $('sidebar').style.display = 'flex';
           await selectMonster(idx);
@@ -842,6 +1029,9 @@ async function loadItemPanel() {
   }
 }
 
+// 物品面板右键选中状态
+let itemPanelSelectedItems = new Set();
+
 async function renderItemPanel(monsterIdx) {
   itemPanelMonsterIdx = monsterIdx;
   const body = $('itemPanelBody');
@@ -862,19 +1052,61 @@ async function renderItemPanel(monsterIdx) {
     const isConfigured = configured[item.Name] === true;
     const cls = isConfigured ? 'configured' : 'unconfigured';
     const check = isConfigured ? '✓' : '';
-    html += `<div class="ip-item ${cls}" data-name="${item.Name}"><span class="ip-check">${check}</span><span class="ip-name" title="${item.Name}">${item.Name}</span></div>`;
+    const selected = itemPanelSelectedItems.has(item.Name) ? ' selected' : '';
+    html += `<div class="ip-item ${cls}${selected}" data-name="${item.Name}"><span class="ip-check">${check}</span><span class="ip-name" title="${item.Name}">${item.Name}</span></div>`;
     count++;
   });
   body.innerHTML = html;
   $('itemPanelCount').textContent = `(${count})`;
 
-  // 点击物品 → 快速添加爆率
+  // 绑定事件
   body.querySelectorAll('.ip-item').forEach(el => {
-    el.onclick = async () => {
-      const itemName = el.dataset.name;
+    const itemName = el.dataset.name;
+
+    // 单击：选中/取消选中（支持 Ctrl 多选）
+    el.onclick = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl+点击：多选
+        if (itemPanelSelectedItems.has(itemName)) {
+          itemPanelSelectedItems.delete(itemName);
+          el.classList.remove('selected');
+        } else {
+          itemPanelSelectedItems.add(itemName);
+          el.classList.add('selected');
+        }
+      } else {
+        // 普通点击：单选
+        itemPanelSelectedItems.clear();
+        body.querySelectorAll('.ip-item').forEach(i => i.classList.remove('selected'));
+        itemPanelSelectedItems.add(itemName);
+        el.classList.add('selected');
+      }
+    };
+
+    // 双击：直接按默认爆率添加
+    el.ondblclick = async () => {
       if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
-      const monName = monsters[itemPanelMonsterIdx]?.name || '';
-      showQuickAddDialog(itemPanelMonsterIdx, itemName, monName);
+      const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
+      try {
+        await window.go.app.App.QuickAddItem(itemPanelMonsterIdx, itemName, 1, defaultDen, 1);
+        loadEntries(itemPanelMonsterIdx);
+        renderItemPanel(itemPanelMonsterIdx);
+        setStatus(`已添加: ${itemName} 1/${defaultDen} → ${monsters[itemPanelMonsterIdx]?.name || ''}`);
+        addLog(`快速添加: ${itemName} 1/${defaultDen} → ${monsters[itemPanelMonsterIdx]?.name || ''}`);
+      } catch(e) { setStatus('添加失败: ' + e); }
+    };
+
+    // 右键：弹出物品上下文菜单
+    el.oncontextmenu = (e) => {
+      e.preventDefault();
+      // 如果右键的物品不在选中集合中，则选中它
+      if (!itemPanelSelectedItems.has(itemName)) {
+        itemPanelSelectedItems.clear();
+        body.querySelectorAll('.ip-item').forEach(i => i.classList.remove('selected'));
+        itemPanelSelectedItems.add(itemName);
+        el.classList.add('selected');
+      }
+      showItemCtxMenu(e.pageX, e.pageY);
     };
   });
 }
@@ -903,6 +1135,118 @@ function showQuickAddDialog(monsterIdx, itemName, monsterName) {
 // 物品面板搜索
 function initItemPanelSearch() {
   $('itemPanelSearch').oninput = () => renderItemPanel(itemPanelMonsterIdx);
+}
+
+// ===== 物品面板右键菜单 =====
+function showItemCtxMenu(x, y) {
+  const menu = $('itemCtxMenu');
+  // 先设置位置并显示以获取尺寸
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  menu.classList.add('show');
+  const menuW = menu.offsetWidth;
+  const menuH = menu.offsetHeight;
+  const viewW = window.innerWidth;
+  const viewH = window.innerHeight;
+  // 如果右侧放不下，向左弹出
+  let finalX = x;
+  let finalY = y;
+  if (x + menuW > viewW) finalX = x - menuW;
+  if (y + menuH > viewH) finalY = y - menuH;
+  if (finalX < 0) finalX = 0;
+  if (finalY < 0) finalY = 0;
+  menu.style.left = finalX + 'px';
+  menu.style.top = finalY + 'px';
+  // 子菜单位置：检测右侧空间
+  const subMenu = $('itemCtxSubMenu');
+  subMenu.classList.remove('pos-right', 'pos-left');
+  // 主菜单右侧剩余空间
+  const spaceRight = viewW - (finalX + menuW);
+  if (spaceRight < 160) {
+    subMenu.classList.add('pos-left');
+  } else {
+    subMenu.classList.add('pos-right');
+  }
+}
+function hideItemCtxMenu() {
+  $('itemCtxMenu').classList.remove('show');
+  $('itemCtxSubMenu').classList.remove('show');
+}
+
+function initItemCtxMenu() {
+  // 点击其他地方关闭物品右键菜单
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#itemCtxMenu')) hideItemCtxMenu();
+  });
+
+  // 鼠标进入“增加选中爆率”时显示子菜单
+  const addItem = $('itemCtxAddRate');
+  addItem.onmouseenter = () => $('itemCtxSubMenu').classList.add('show');
+
+  // 旧爆率格式和新爆率格式的处理在 initItemCtxMenu 末尾定义
+  $('itemCtxOldFormat').onclick = async () => {
+    hideItemCtxMenu();
+    if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
+    const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
+    const items = Array.from(itemPanelSelectedItems);
+    if (items.length === 0) return setStatus('请先选择物品');
+    // 检查是否已有配置
+    try {
+      const configured = await window.go.app.App.CheckItemConfigured(itemPanelMonsterIdx);
+      const existing = items.filter(name => configured[name] === true);
+      if (existing.length > 0) {
+        const proceed = await showConfirmDialog(
+          '物品已存在',
+          `以下物品已在该怪物中配置过：\n${existing.join('、')}\n\n是否仍要添加？`
+        );
+        if (!proceed) return;
+      }
+    } catch(e) {}
+    let added = 0;
+    for (const itemName of items) {
+      try {
+        await window.go.app.App.QuickAddItem(itemPanelMonsterIdx, itemName, 1, defaultDen, 1);
+        added++;
+      } catch(e) { /* skip */ }
+    }
+    loadEntries(itemPanelMonsterIdx);
+    renderItemPanel(itemPanelMonsterIdx);
+    const monName = monsters[itemPanelMonsterIdx]?.name || '';
+    setStatus(`已添加 ${added} 个物品（旧格式 1/${defaultDen}）→ ${monName}`);
+    addLog(`旧格式添加 ${added} 个物品 1/${defaultDen} → ${monName}`);
+  };
+
+  // 新爆率格式
+  $('itemCtxNewFormat').onclick = async () => {
+    hideItemCtxMenu();
+    if (itemPanelMonsterIdx < 0) return setStatus('请先选择怪物');
+    const defaultDen = parseInt($('itemPanelDefaultRate').value) || 100;
+    const items = Array.from(itemPanelSelectedItems);
+    if (items.length === 0) return setStatus('请先选择物品');
+    // 检查是否已有配置
+    try {
+      const configured = await window.go.app.App.CheckItemConfigured(itemPanelMonsterIdx);
+      const existing = items.filter(name => configured[name] === true);
+      if (existing.length > 0) {
+        const proceed = await showConfirmDialog(
+          '物品已存在',
+          `以下物品已在该怪物中配置过：\n${existing.join('、')}\n\n是否仍要添加？`
+        );
+        if (!proceed) return;
+      }
+    } catch(e) {}
+    try {
+      const childLine = `#CHILD 1/${defaultDen} RANDOM`;
+      const childBody = items.map(name => `1/1 ${name}`).join('\n');
+      const fullText = childLine + '\n(\n' + childBody + '\n)';
+      await window.go.app.App.AddRawEntry(itemPanelMonsterIdx, fullText);
+      loadEntries(itemPanelMonsterIdx);
+      renderItemPanel(itemPanelMonsterIdx);
+      const monName = monsters[itemPanelMonsterIdx]?.name || '';
+      setStatus(`已添加 ${items.length} 个物品（新格式 #CHILD 1/${defaultDen} RANDOM）→ ${monName}`);
+      addLog(`新格式添加 ${items.length} 个物品 #CHILD 1/${defaultDen} RANDOM → ${monName}`);
+    } catch(e) { setStatus('添加失败: ' + e); }
+  };
 }
 
 // ===== 地图视图（按地图查看怪物和爆率） =====
@@ -1062,78 +1406,221 @@ function initCtxMenu() {
   };
 }
 
+// 地图视图文本编辑器状态
+let mapViewEditorDirty = false;
+let mapViewEditorMonsterIdx = -1;
+
 async function loadMapViewEntries(monsterIndex) {
   try {
-    const entries = await window.go.app.App.GetEntries(monsterIndex);
-    renderMapViewEntries(entries, monsterIndex);
+    // 只在切换到不同怪物时才检查未保存的修改
+    if (mapViewEditorDirty && mapViewEditorMonsterIdx >= 0 && mapViewEditorMonsterIdx !== monsterIndex) {
+      const curName = monsters[mapViewEditorMonsterIdx]?.name || '';
+      const proceed = await showConfirmDialog(
+        '未保存的修改',
+        `怪物「${curName}」有未保存的修改，是否保存？`
+      );
+      if (proceed) {
+        await saveMapViewEditorContent(mapViewEditorMonsterIdx);
+      }
+    }
+    const rawContent = await window.go.app.App.GetRawContent(monsterIndex);
+    renderMapViewTextEditor(rawContent, monsterIndex);
   } catch(e) {
     setStatus('加载掉落条目失败: ' + e);
   }
 }
 
-function renderMapViewEntries(entries, monsterIndex) {
+function renderMapViewTextEditor(content, monsterIndex) {
   const body = $('mapViewEntryBody');
-  if (!entries) { body.innerHTML = ''; return; }
-  let count = 0;
-  let lineNum = 0;
-  let html = '<div class="code-editor">';
-  entries.forEach((e, i) => {
-    if (e.isComment && !e.isEditable) return;
-    lineNum++;
-    const indent = '  '.repeat(e.depth);
-    let cls = '', text = '';
-    if (e.isComment) { cls = 'ecomm'; text = escapeHtml(e.rawLine); }
-    else if (e.isCallRef) { cls = 'ecall'; text = `#CALL [${escapeHtml(e.callPath)}]` + (e.callLabel ? ' ' + escapeHtml(e.callLabel) : ''); }
-    else if (e.isChildStart) {
-      const rnd = e.childRandom ? ' RANDOM' : '';
-      html += `<details class="code-fold" open><summary class="code-line echild" data-eidx="${e.index}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}#CHILD ${e.childProb}${rnd}</span></summary>`;
-      return;
+  const monName = monsters[monsterIndex]?.name || '';
+  mapViewEditorMonsterIdx = monsterIndex;
+  mapViewEditorDirty = false;
+  body.innerHTML = `
+    <div class="editor-toolbar">
+      <span class="editor-mon-name">📝 ${monName}</span>
+      <div class="editor-actions">
+        <span class="editor-status" id="mapEditorStatus"></span>
+        <button class="btn btn-sm" id="btnMapFoldAll" title="折叠全部 #CHILD">📁 全部折叠</button>
+        <button class="btn btn-sm" id="btnMapUnfoldAll" title="展开全部">📂 全部展开</button>
+        <button class="btn btn-sm btn-gold" id="btnMapEditorSave" title="保存文件 (Ctrl+S)">💾 保存</button>
+      </div>
+    </div>
+    <div class="editor-wrap">
+      <div class="editor-lines" id="mapEditorLines"></div>
+      <div class="fold-gutter" id="mapFoldGutter"></div>
+      <div class="bracket-col" id="mapBracketCol"></div>
+      <textarea class="text-editor" id="mapTextEditor" spellcheck="false"></textarea>
+    </div>
+  `;
+  const textarea = $('mapTextEditor');
+  textarea.value = content;
+
+  // 独立的折叠状态
+  let mapFoldState = { originalContent: '', blocks: [] };
+
+  function rebuildMapUI() {
+    const lines = textarea.value.split('\n');
+    // 检测折叠块
+    const blocks = [];
+    const stack = [];
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (/^#CHILD\b/i.test(t) || /^#CASE\b/i.test(t) || /^#IF\b/i.test(t)) stack.push(i);
+      else if (t === ')' && stack.length > 0) {
+        const s = stack.pop();
+        blocks.push({ startLine: s, endLine: i, collapsed: false });
+      }
     }
-    else if (e.isChildEnd) { html += '</details>'; return; }
-    else if (e.isCaseStart) { html += `<details class="code-fold" open><summary class="code-line ecase" data-eidx="${e.index}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}#CASE ${escapeHtml(e.caseExpr)}</span></summary>`; return; }
-    else if (e.isIfStart) { html += `<details class="code-fold" open><summary class="code-line eif" data-eidx="${e.index}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}#IF ${escapeHtml(e.caseExpr)}</span></summary>`; return; }
-    else if (e.isEditable) {
-      cls = 'eitem';
-      const trig = e.hasTrigger ? ` <span class="trig">|${escapeHtml(e.triggerName)}</span>` : '';
-      text = `<span class="prob">${e.probStr}</span> <span class="iname">${escapeHtml(e.itemName)}</span>${trig} <span class="qty">x${e.quantity}</span>`;
-      html += `<div class="code-line ${cls}" data-eidx="${e.index}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}${text}</span></div>`;
-      count++;
-      return;
+    // 保留折叠状态
+    for (const nb of blocks) {
+      const ob = mapFoldState.blocks.find(o => o.startLine === nb.startLine && o.endLine === nb.endLine);
+      if (ob && ob.collapsed) nb.collapsed = true;
     }
-    else { text = escapeHtml(e.rawLine); }
-    html += `<div class="code-line ${cls}" data-eidx="${e.index}"><span class="line-no">${lineNum}</span><span class="line-content">${indent}${text}</span></div>`;
-  });
-  html += '</div>';
-  body.innerHTML = html;
-  $('mapViewItemCount').textContent = `(${count}条可编辑)`;
-  body.querySelectorAll('.code-line.eitem').forEach(el => {
-    el.onclick = () => {
-      const entryIdx = parseInt(el.dataset.eidx);
-      const entry = entries.find(e => e.index === entryIdx);
-      if (entry && entry.isEditable) showMapViewEditDialog(monsterIndex, entryIdx, entry);
+    mapFoldState.blocks = blocks;
+
+    // 行号
+    let lineHtml = '';
+    for (let i = 1; i <= lines.length; i++) lineHtml += i + '<br>';
+    $('mapEditorLines').innerHTML = lineHtml;
+
+    // 折叠标记
+    const blockMap = {};
+    blocks.forEach(b => { blockMap[b.startLine] = b; });
+    let foldHtml = '';
+    for (let i = 0; i < lines.length; i++) {
+      if (blockMap[i]) {
+        const cls = blockMap[i].collapsed ? 'collapsed' : 'expanded';
+        foldHtml += `<div class="fold-row"><span class="fold-btn ${cls}" data-line="${i}"></span></div>`;
+      } else {
+        foldHtml += '<div class="fold-row"></div>';
+      }
+    }
+    $('mapFoldGutter').innerHTML = foldHtml;
+    $('mapFoldGutter').querySelectorAll('.fold-btn').forEach(btn => {
+      btn.onclick = () => {
+        const line = parseInt(btn.dataset.line);
+        const block = mapFoldState.blocks.find(b => b.startLine === line);
+        if (!block) return;
+        if (block.collapsed) {
+          // 展开
+          if (mapFoldState.originalContent) {
+            textarea.value = mapFoldState.originalContent;
+            mapFoldState.originalContent = '';
+            mapFoldState.blocks.forEach(b => b.collapsed = false);
+            mapViewEditorDirty = true;
+          }
+          rebuildMapUI();
+        } else {
+          // 折叠
+          if (!mapFoldState.originalContent) mapFoldState.originalContent = textarea.value;
+          const lns = textarea.value.split('\n');
+          const hdr = lns[block.startLine];
+          const cls = lns[block.endLine] || ')';
+          const cnt = block.endLine - block.startLine - 1;
+          const folded = hdr + `  [... ${cnt} 行折叠 ...]  ` + cls.trim();
+          const newLns = [...lns.slice(0, block.startLine), folded, ...lns.slice(block.endLine + 1)];
+          textarea.value = newLns.join('\n');
+          block.collapsed = true;
+          mapViewEditorDirty = true;
+          rebuildMapUI();
+        }
+      };
+    });
+
+    // 方括号列
+    const lineRole = {};
+    blocks.forEach(b => {
+      if (b.collapsed || b.endLine - b.startLine < 2) return;
+      lineRole[b.startLine] = 'start';
+      lineRole[b.endLine] = 'end';
+      for (let i = b.startLine + 1; i < b.endLine; i++) if (!lineRole[i]) lineRole[i] = 'mid';
+    });
+    let brHtml = '';
+    for (let i = 0; i < lines.length; i++) {
+      const role = lineRole[i];
+      if (role === 'start') brHtml += '<div class="bracket-line bk-top"><span class="bracket-char">[</span></div>';
+      else if (role === 'end') brHtml += '<div class="bracket-line bk-bot"><span class="bracket-char">]</span></div>';
+      else if (role === 'mid') brHtml += '<div class="bracket-line bk-mid"></div>';
+      else brHtml += '<div class="bracket-line"></div>';
+    }
+    $('mapBracketCol').innerHTML = brHtml;
+
+    // 滚动同步
+    textarea.onscroll = () => {
+      const t = textarea.scrollTop;
+      ['mapEditorLines', 'mapFoldGutter', 'mapBracketCol'].forEach(id => {
+        const el = $(id); if (el) el.scrollTop = t;
+      });
     };
-  });
+  }
+
+  rebuildMapUI();
+
+  textarea.oninput = () => {
+    mapViewEditorDirty = true;
+    $('mapEditorStatus').textContent = '● 未保存';
+    $('mapEditorStatus').className = 'editor-status dirty';
+    rebuildMapUI();
+  };
+
+  $('btnMapEditorSave').onclick = async () => {
+    await saveMapViewEditorContent(monsterIndex);
+  };
+
+  $('btnMapFoldAll').onclick = () => {
+    if (!mapFoldState.originalContent) mapFoldState.originalContent = textarea.value;
+    const sorted = [...mapFoldState.blocks].sort((a, b) => b.startLine - a.startLine);
+    for (const block of sorted) {
+      if (!block.collapsed) {
+        const lns = textarea.value.split('\n');
+        const hdr = lns[block.startLine];
+        const cls = lns[block.endLine] || ')';
+        const cnt = block.endLine - block.startLine - 1;
+        const folded = hdr + `  [... ${cnt} 行折叠 ...]  ` + cls.trim();
+        textarea.value = [...lns.slice(0, block.startLine), folded, ...lns.slice(block.endLine + 1)].join('\n');
+        block.collapsed = true;
+      }
+    }
+    mapViewEditorDirty = true;
+    rebuildMapUI();
+  };
+
+  $('btnMapUnfoldAll').onclick = () => {
+    if (mapFoldState.originalContent) {
+      textarea.value = mapFoldState.originalContent;
+      mapFoldState.originalContent = '';
+      mapFoldState.blocks.forEach(b => b.collapsed = false);
+      mapViewEditorDirty = true;
+    }
+    rebuildMapUI();
+  };
+
+  textarea.onkeydown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveMapViewEditorContent(monsterIndex);
+    }
+  };
+
+  $('mapViewItemCount').textContent = '';
+  textarea.focus();
 }
 
-function showMapViewEditDialog(monsterIndex, entryIndex, entry) {
-  showModal('修改掉落配置', `
-    <div class="form-row"><label>怪物:</label><span style="color:#5b9df0">${monsters.find((m,i) => i === monsterIndex)?.name || ''}</span></div>
-    <div class="form-row"><label>物品名称:</label><span style="color:#5b9df0">${entry.itemName}</span></div>
-    <div class="form-row"><label>概率分子:</label><input type="text" id="mNum" value="${entry.probNum}" /></div>
-    <div class="form-row"><label>概率分母:</label><input type="text" id="mDen" value="${entry.probDen}" /></div>
-    <div class="form-row"><label>掉落数量:</label><input type="text" id="mQty" value="${entry.quantity}" /></div>
-  `, [
-    {text:'保存',cls:'btn-gold',action:async()=>{
-      const num=+$('mNum').value,den=+$('mDen').value,qty=+$('mQty').value;
-      if(den<=0||qty<=0) return setStatus('请输入有效正整数');
-      await window.go.app.App.ModifyEntry(monsterIndex,entryIndex,num,den,qty);
-      hideModal();
-      // 刷新条目列表
-      await loadMapViewEntries(monsterIndex);
-      addLog(`修改 ${entry.itemName}: ${num}/${den} x${qty}`);
-    }},
-    {text:'取消',cls:'',action:hideModal}
-  ]);
+async function saveMapViewEditorContent(monsterIndex) {
+  const textarea = $('mapTextEditor');
+  if (!textarea) return;
+  try {
+    await window.go.app.App.SaveRawContent(monsterIndex, textarea.value);
+    mapViewEditorDirty = false;
+    $('mapEditorStatus').textContent = '✓ 已保存';
+    $('mapEditorStatus').className = 'editor-status saved';
+    setStatus(`已保存: ${monsters[monsterIndex]?.name || ''}`);
+    addLog(`保存文件: ${monsters[monsterIndex]?.name || ''}`);
+  } catch(e) {
+    $('mapEditorStatus').textContent = '✕ 保存失败';
+    $('mapEditorStatus').className = 'editor-status error';
+    setStatus('保存失败: ' + e);
+  }
 }
 
 // 地图视图搜索过滤
@@ -1481,5 +1968,16 @@ function showModal(title, bodyHtml, buttons) {
   $('modalOverlay').classList.add('show');
 }
 function hideModal() { $('modalOverlay').classList.remove('show'); }
+
+// 确认对话框，返回 Promise<boolean>
+function showConfirmDialog(title, message) {
+  return new Promise(resolve => {
+    const bodyHtml = `<div style="white-space:pre-wrap;line-height:1.6;font-size:13px">${message}</div>`;
+    showModal(title, bodyHtml, [
+      {text:'确定', cls:'btn-gold', action:()=>{ hideModal(); resolve(true); }},
+      {text:'取消', cls:'', action:()=>{ hideModal(); resolve(false); }}
+    ]);
+  });
+}
 $('modalClose').onclick = hideModal;
 $('modalOverlay').onclick = e => { if (e.target === $('modalOverlay')) hideModal(); };

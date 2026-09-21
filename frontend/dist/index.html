@@ -74,14 +74,25 @@
 </div>
 
 <div class="app" id="mainApp" style="display:none">
-  <!-- ===== 爆率修改顶部导航 ===== -->
-  <div class="edit-topnav" id="editTopnav" style="display:none">
-    <div class="edit-topnav-left">
-      <span class="edit-topnav-title">📝 爆率修改</span>
+  <!-- ===== 一级导航（最顶部） ===== -->
+  <div class="top-tabs" id="tabBar">
+    <div class="top-tab active" data-tab="edit">📝 爆率修改</div>
+    <div class="top-tab" data-tab="sim">📊 爆率模拟</div>
+    <div class="top-tab" data-tab="tune">🎯 爆率调配</div>
+    <div class="top-tab" data-tab="batch">⚙️ 批量处理</div>
+    <div class="top-tab" data-tab="log">📋 操作日志</div>
+    <div class="top-tab" data-tab="auth">🔑 授权管理</div>
+    <div style="flex:1"></div>
+    <div class="top-tab top-tab-switch" id="btnSwitchServer" title="切换服务端">🔄 切换服务端</div>
+  </div>
+
+  <!-- ===== 二级导航（爆率修改子功能） ===== -->
+  <div class="sub-nav" id="subNav">
+    <div class="sub-nav-left">
       <span class="view-toggle active" id="btnViewMonster" title="按怪物视图查看">👹 怪物视图</span>
       <span class="view-toggle" id="btnViewMap" title="按地图查看">🗺️ 地图视图</span>
     </div>
-    <div class="edit-topnav-actions">
+    <div class="sub-nav-actions">
       <button class="btn btn-sm" id="btnAdd">➕ 新增</button>
       <button class="btn btn-sm" id="btnMul">✖️ 批量倍率</button>
       <button class="btn btn-sm" id="btnSetProb">🎯 批量概率</button>
@@ -91,22 +102,6 @@
       <button class="btn btn-sm" id="btnBackupAll">📦 全量备份</button>
       <div class="sep"></div>
       <button class="btn btn-sm btn-gold" id="btnSave">💾 保存</button>
-    </div>
-  </div>
-
-  <!-- ===== 顶栏 ===== -->
-  <div class="toolbar" id="mainToolbar">
-    <div class="toolbar-row">
-      <label>服务端目录:</label>
-      <input type="text" id="serverPath" placeholder="选择传奇服务端根目录" />
-      <button class="btn" id="btnBrowse">📁 浏览</button>
-      <div class="sep"></div>
-      <label>引擎类型:</label>
-      <select id="engineSelect">
-        <option>自动检测</option><option>HERO</option><option>GOM</option><option>GEE</option><option>BLUE</option>
-      </select>
-      <button class="btn" id="btnDetect">🔍 自动检测</button>
-      <button class="btn btn-gold" id="btnLoad">📂 加载爆率文件</button>
     </div>
   </div>
 
@@ -120,17 +115,6 @@
 
     <!-- 右侧内容 -->
     <div class="content">
-      <div class="tabs" id="tabBar">
-        <div class="tab active" data-tab="edit">📝 爆率修改</div>
-        <div class="tab" data-tab="sim">📊 爆率模拟</div>
-        <div class="tab" data-tab="tune">🎯 爆率调配</div>
-        <div class="tab" data-tab="batch">⚙️ 批量处理</div>
-        <div class="tab" data-tab="log">📋 操作日志</div>
-        <div class="tab" data-tab="auth">🔑 授权管理</div>
-        <div style="flex:1"></div>
-        <div class="tab tab-switch" id="btnSwitchServer" title="切换服务端">🔄 切换服务端</div>
-      </div>
-
       <div class="tab-content">
         <!-- ===== 爆率修改 ===== -->
         <div class="tab-pane active" id="pane-edit">
@@ -141,6 +125,10 @@
               <div class="item-panel-hdr">
                 <span>📦 物品列表</span>
                 <span class="badge" id="itemPanelCount"></span>
+              </div>
+              <div class="item-panel-rate">
+                <label>默认爆率:</label>
+                <span>1/</span><input type="text" id="itemPanelDefaultRate" value="100" placeholder="100" />
               </div>
               <div class="item-panel-search"><input type="text" id="itemPanelSearch" placeholder="搜索物品..." /></div>
               <div class="item-panel-body" id="itemPanelBody"></div>
@@ -283,6 +271,7 @@
           </div>
         </div>
 
+        <!-- ===== 操作日志 ===== -->
         <!-- ===== 批量处理 ===== -->
         <div class="tab-pane" id="pane-batch">
           <div style="padding:40px;text-align:center;color:var(--t3)">
@@ -292,7 +281,6 @@
           </div>
         </div>
 
-        <!-- ===== 操作日志 ===== -->
         <div class="tab-pane" id="pane-log">
           <div class="log-hdr"><span style="font-weight:600">📋 操作记录</span><div style="flex:1"></div><button class="btn btn-sm" id="btnRefreshLog">🔄 刷新</button></div>
           <div class="log-area" id="logArea">暂无操作记录</div>
@@ -334,17 +322,26 @@
   <!-- ===== 状态栏 ===== -->
   <div class="statusbar">
     <span id="statusText">就绪 - 请选择传奇服务端目录</span>
-    <span class="version">v3.1.0</span>
+    <span class="version">v3.1.1</span>
   </div>
 </div>
 
-<!-- ===== 右键菜单 ===== -->
+<!-- ===== 右键菜单（地图视图怪物） ===== -->
 <div class="ctx-menu" id="ctxMenu">
   <div class="ctx-item" id="ctxCopyRates">📋 复制爆率</div>
   <div class="ctx-item" id="ctxPasteRates">📌 粘贴爆率到选中怪物</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ctxSelectAll">☑️ 全选</div>
   <div class="ctx-item" id="ctxDeselectAll">⬜ 全不选</div>
+</div>
+
+<!-- ===== 物品面板右键菜单 ===== -->
+<div class="ctx-menu" id="itemCtxMenu">
+  <div class="ctx-item has-sub" id="itemCtxAddRate">➕ 增加选中爆率<span class="ctx-arrow">▶</span></div>
+  <div class="ctx-sub-menu" id="itemCtxSubMenu">
+    <div class="ctx-item" id="itemCtxOldFormat">📄 旧爆率格式</div>
+    <div class="ctx-item" id="itemCtxNewFormat">📋 新爆率格式</div>
+  </div>
 </div>
 
 <!-- ===== 加载提示 ===== -->
