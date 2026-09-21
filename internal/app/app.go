@@ -818,8 +818,9 @@ type MapViewMap struct {
 // MapViewMonster 地图视图 - 怪物信息
 type MapViewMonster struct {
 	MonsterName  string `json:"monsterName"`
-	MonsterIndex int    `json:"monsterIndex"` // currentResults 中的索引
+	MonsterIndex int    `json:"monsterIndex"` // currentResults 中的索引，-1 表示无爆率文件
 	EntryCount   int    `json:"entryCount"`   // 掉落条目数
+	HasDropFile  bool   `json:"hasDropFile"`  // 是否有爆率文件
 }
 
 // GetMapMonsterView 获取地图视图数据：所有地图及其怪物数量
@@ -878,39 +879,47 @@ func (a *App) GetMapMonsterView() []MapViewMap {
 }
 
 // GetMapMonsters 获取指定地图下的怪物列表（含条目数）
+// 即使怪物没有爆率文件也会显示（HasDropFile=false, MonsterIndex=-1）
 func (a *App) GetMapMonsters(mapName string) []MapViewMonster {
-	if a.currentResults == nil {
-		return nil
-	}
-
-	// 收集该地图的怪物名
-	monsterSet := make(map[string]bool)
+	// 收集该地图的怪物名（去重）
+	monsterNames := make(map[string]bool)
 	for _, e := range a.monGenEntries {
 		if strings.TrimSpace(e.MapName) == mapName {
-			monsterSet[e.MonsterName] = true
+			monsterNames[e.MonsterName] = true
 		}
 	}
-
 	// 如果 MonGen 没数据，把 mapName 当怪物名处理
-	if len(monsterSet) == 0 {
-		monsterSet[mapName] = true
+	if len(monsterNames) == 0 {
+		monsterNames[mapName] = true
+	}
+
+	// 建立怪物名→currentResults 索引的映射
+	monsterIdxMap := make(map[string]int)
+	if a.currentResults != nil {
+		for i, r := range a.currentResults {
+			monsterIdxMap[r.File.MonsterName] = i
+		}
 	}
 
 	var result []MapViewMonster
-	for _, r := range a.currentResults {
-		if monsterSet[r.File.MonsterName] {
-			editableCount := 0
-			for _, e := range r.File.Entries {
-				if e.IsEditable() {
-					editableCount++
+	for name := range monsterNames {
+		m := MapViewMonster{
+			MonsterName:  name,
+			MonsterIndex: -1,
+			HasDropFile:  false,
+		}
+		if idx, ok := monsterIdxMap[name]; ok {
+			m.MonsterIndex = idx
+			m.HasDropFile = true
+			if a.currentResults != nil {
+				for _, e := range a.currentResults[idx].File.Entries {
+					if e.IsEditable() {
+						m.EntryCount++
+					}
 				}
 			}
-			result = append(result, MapViewMonster{
-				MonsterName:  r.File.MonsterName,
-				MonsterIndex: findMonsterIndex(a.currentResults, r.File.MonsterName),
-				EntryCount:   editableCount,
-			})
 		}
+		result = append(result, m)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].MonsterName < result[j].MonsterName

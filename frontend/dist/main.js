@@ -1317,13 +1317,16 @@ async function loadMapViewMonsters(mapName) {
     let html = `<div class="rrow hdr"><span class="lbl">怪物名称</span><span class="val">掉落条目</span></div>`;
     list.forEach((m, i) => {
       const allMaps = locMap[m.monsterName] || [];
-      // 过滤掉当前地图
       const otherMaps = allMaps.filter(d => d !== curDisplayName);
       const multiCls = otherMaps.length > 0 ? ' multi-map' : '';
       const tooltip = otherMaps.length > 0 ? ` title="该怪物还出现在: ${otherMaps.join(', ')}"` : '';
-      html += `<div class="rrow${multiCls}" data-idx="${i}" data-name="${m.monsterName}" data-midx="${m.monsterIndex}"${tooltip}>
-        <span class="lbl"><label class="mon-cb-wrap"><input type="checkbox" class="mon-cb" data-midx="${m.monsterIndex}" /> ${m.monsterName}</label></span>
-        <span class="val">${m.entryCount}条</span>
+      const noFileCls = m.hasDropFile ? '' : ' no-drop-file';
+      const valText = m.hasDropFile ? `${m.entryCount}条` : '无爆率文件';
+      const cbDisabled = m.hasDropFile ? '' : ' disabled';
+      const clickable = m.hasDropFile ? ' data-idx="${i}"' : '';
+      html += `<div class="rrow${multiCls}${noFileCls}"${clickable} data-name="${m.monsterName}" data-midx="${m.monsterIndex}"${tooltip}>
+        <span class="lbl"><label class="mon-cb-wrap"><input type="checkbox" class="mon-cb" data-midx="${m.monsterIndex}"${cbDisabled} /> ${m.monsterName}</label></span>
+        <span class="val">${valText}</span>
       </div>`;
     });
     body.innerHTML = html;

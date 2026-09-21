@@ -127,6 +127,11 @@ html,body{height:100%;font-family:'Segoe UI','Microsoft YaHei',sans-serif;backgr
 .rrow.multi-map .lbl{color:var(--info);font-weight:600}
 .rrow.multi-map{background:rgba(91,157,240,.06);border-left:3px solid var(--info)}
 .rrow.multi-map:hover{background:rgba(91,157,240,.12)}
+/* no drop file monster */
+.rrow.no-drop-file{opacity:.5}
+.rrow.no-drop-file .lbl{color:var(--t3)}
+.rrow.no-drop-file .val{color:var(--danger);font-size:11px}
+.rrow.no-drop-file:hover{opacity:.8}
 /* monster checkbox */
 .mon-cb-wrap{display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .mon-cb{accent-color:var(--accent);cursor:pointer;margin:0}
